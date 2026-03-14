@@ -30,6 +30,7 @@ type DiscoverQueryStep = {
   source: 'rpc.getProgramAccounts';
   program_id: string;
   account_type: string;
+  discriminator_filter?: boolean;
   commitment?: Commitment;
   or_filters?: DiscoverMemcmpClause[][];
   where?: DiscoverWhereClause[];
@@ -144,6 +145,7 @@ type CompiledOperation = {
   programId: PublicKey;
   accountType: string;
   accountSize: number;
+  discriminatorFilter: GetProgramAccountsFilter | null;
   paramMap: Record<string, string>;
   operationInputDefs: Record<string, OperationInputDef>;
 };
@@ -350,6 +352,12 @@ function compileOperation(meta: MetaPack, coder: BorshAccountsCoder, options: Ap
     programId: parsePublicKey(options.programId, 'programId'),
     accountType: discoverStep.account_type,
     accountSize: coder.size(discoverStep.account_type),
+    discriminatorFilter:
+      discoverStep.discriminator_filter === false
+        ? null
+        : {
+            memcmp: coder.memcmp(discoverStep.account_type),
+          },
     paramMap: use.with ?? {},
     operationInputDefs: operation.inputs ?? {},
   };
@@ -700,7 +708,11 @@ export class AppPackViewReadService {
     const accountsByPubkey = new Map<string, Buffer>();
 
     for (const groupFilters of filtersByGroup) {
-      const filters: GetProgramAccountsFilter[] = [{ dataSize: this.compiled.accountSize }, ...groupFilters];
+      const filters: GetProgramAccountsFilter[] = [
+        { dataSize: this.compiled.accountSize },
+        ...(this.compiled.discriminatorFilter ? [this.compiled.discriminatorFilter] : []),
+        ...groupFilters,
+      ];
       const accounts = await this.connection.getProgramAccounts(this.compiled.programId, {
         commitment: step.commitment ?? 'confirmed',
         filters,
