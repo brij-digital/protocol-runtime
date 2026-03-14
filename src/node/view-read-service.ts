@@ -80,6 +80,7 @@ type MetaPack = {
 type ListPoolsOptions = {
   input: Record<string, unknown>;
   limit: number;
+  allowRpcFallback?: boolean;
 };
 
 type ReadResult = {
@@ -459,6 +460,7 @@ export class AppPackViewReadService {
   async runRead(options: ListPoolsOptions): Promise<ReadResult> {
     const resolvedInput = this.resolveOperationInput(options.input);
     const effectiveLimit = Math.max(1, Math.min(options.limit, this.compiled.outputMaxItems));
+    const allowRpcFallback = options.allowRpcFallback ?? true;
     const cacheKey = this.makeCacheKey(resolvedInput, effectiveLimit);
     const now = Date.now();
     const cached = this.cache.get(cacheKey);
@@ -478,6 +480,15 @@ export class AppPackViewReadService {
         });
         return dbValue;
       }
+    }
+
+    if (!allowRpcFallback) {
+      if (!this.pool) {
+        throw new Error(
+          `No indexed data available for ${this.compiled.namespace}: DATABASE_URL is not configured and RPC fallback is disabled.`,
+        );
+      }
+      throw new Error(`No indexed data available for ${this.compiled.namespace} and RPC fallback is disabled.`);
     }
 
     const rpcValue = await this.fetchFromRpc(resolvedInput, effectiveLimit);
