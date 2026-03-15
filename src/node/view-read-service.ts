@@ -80,12 +80,11 @@ type MetaPack = {
 type ListPoolsOptions = {
   input: Record<string, unknown>;
   limit: number;
-  allowRpcFallback?: boolean;
 };
 
 type ReadResult = {
   items: Record<string, unknown>[];
-  source: 'cache' | 'db' | 'rpc';
+  source: 'cache' | 'db';
   slot: number;
   generatedAtMs: number;
 };
@@ -156,19 +155,6 @@ type CompiledOperation = {
   discriminatorFilter: GetProgramAccountsFilter | null;
   paramMap: Record<string, string>;
   operationInputDefs: Record<string, OperationInputDef>;
-};
-
-type RpcV2AccountEntry = {
-  pubkey: string;
-  account: {
-    data: string | [string, string];
-  };
-};
-
-type RpcV2GetProgramAccountsResult = {
-  accounts: RpcV2AccountEntry[];
-  paginationKey?: string | null;
-  count?: number;
 };
 
 const LEGACY_ORCA_POOLS_TABLE = 'orca_pools';
@@ -308,22 +294,38 @@ function pickFieldBySelectValue(select: Record<string, unknown>, valueRef: strin
   return null;
 }
 
-function inferPairParams(step: DiscoverQueryStep): [string | null, string | null] {
+function inferPairParams(
+  step: DiscoverQueryStep,
+  operationInputDefs: Record<string, OperationInputDef>,
+): [string | null, string | null] {
+  const preferredPairs: Array<[string, string]> = [
+    ['token_in_mint', 'token_out_mint'],
+    ['base_mint', 'quote_mint'],
+    ['token_mint_a', 'token_mint_b'],
+    ['mint_a', 'mint_b'],
+  ];
+  for (const [left, right] of preferredPairs) {
+    if (operationInputDefs[left] && operationInputDefs[right]) {
+      return [left, right];
+    }
+  }
+
+  // Backward-compatible fallback for legacy specs that still use or_filters.
   const params = new Set<string>();
   const groups = step.or_filters ?? [];
   for (const group of groups) {
     for (const condition of group) {
       const ref = condition.memcmp.bytesFrom;
-      if (!ref.startsWith('$param.')) {
-        continue;
+      if (ref.startsWith('$param.')) {
+        params.add(ref.slice('$param.'.length));
       }
-      params.add(ref.slice('$param.'.length));
     }
   }
   const values = Array.from(params);
   if (values.length >= 2) {
     return [values[0] ?? null, values[1] ?? null];
   }
+
   return [null, null];
 }
 
@@ -384,10 +386,11 @@ function compileOperation(meta: MetaPack, coder: BorshAccountsCoder, options: Ap
   const outputMaxItems = operation.read_output?.max_items ?? discoverStep.limit ?? 20;
   const outputSource = operation.read_output?.source ?? `$derived.${discoverStep.name}`;
   const entityKeys = operation.view?.entity_keys ?? ['whirlpool'];
+  const operationInputDefs = operation.inputs ?? {};
   const tokenMintFieldA = pickFieldBySelectValue(discoverStep.select, '$decoded.token_mint_a');
   const tokenMintFieldB = pickFieldBySelectValue(discoverStep.select, '$decoded.token_mint_b');
   const liquidityField = pickFieldBySelectValue(discoverStep.select, '$decoded.liquidity');
-  const [pairParamA, pairParamB] = inferPairParams(discoverStep);
+  const [pairParamA, pairParamB] = inferPairParams(discoverStep, operationInputDefs);
   const paramFieldMap = inferParamFieldMap(discoverStep);
 
   return {
@@ -414,7 +417,7 @@ function compileOperation(meta: MetaPack, coder: BorshAccountsCoder, options: Ap
             memcmp: coder.memcmp(discoverStep.account_type),
           },
     paramMap: use.with ?? {},
-    operationInputDefs: operation.inputs ?? {},
+    operationInputDefs,
   };
 }
 
@@ -505,7 +508,6 @@ export class AppPackViewReadService {
   async runRead(options: ListPoolsOptions): Promise<ReadResult> {
     const resolvedInput = this.resolveOperationInput(options.input);
     const effectiveLimit = Math.max(1, Math.min(options.limit, this.compiled.outputMaxItems));
-    const allowRpcFallback = options.allowRpcFallback ?? true;
     const cacheKey = this.makeCacheKey(resolvedInput, effectiveLimit);
     const now = Date.now();
     const cached = this.cache.get(cacheKey);
@@ -527,21 +529,10 @@ export class AppPackViewReadService {
       }
     }
 
-    if (!allowRpcFallback) {
-      if (!this.pool) {
-        throw new Error(
-          `No indexed data available for ${this.compiled.namespace}: DATABASE_URL is not configured and RPC fallback is disabled.`,
-        );
-      }
-      throw new Error(`No indexed data available for ${this.compiled.namespace} and RPC fallback is disabled.`);
+    if (!this.pool) {
+      throw new Error(`No indexed data available for ${this.compiled.namespace}: DATABASE_URL is not configured.`);
     }
-
-    const rpcValue = await this.fetchFromRpc(resolvedInput, effectiveLimit);
-    this.cache.set(cacheKey, {
-      expiresAtMs: rpcValue.generatedAtMs + this.cacheTtlMs,
-      value: rpcValue,
-    });
-    return rpcValue;
+    throw new Error(`No indexed data available for ${this.compiled.namespace}.`);
   }
 
   async syncFullToDatabase(): Promise<FullSyncResult | null> {
@@ -736,21 +727,6 @@ export class AppPackViewReadService {
     return resolved;
   }
 
-  private resolveParamsFromInput(input: Record<string, unknown>): Record<string, unknown> {
-    const params: Record<string, unknown> = {};
-    const context = { input };
-    for (const [paramName, expression] of Object.entries(this.compiled.paramMap)) {
-      params[paramName] = resolveReference(expression, context);
-    }
-    // If template mapping omits some params, fallback from input by same name.
-    for (const inputName of Object.keys(input)) {
-      if (!(inputName in params)) {
-        params[inputName] = input[inputName];
-      }
-    }
-    return params;
-  }
-
   private async fetchFromDatabase(input: Record<string, unknown>, limit: number): Promise<ReadResult | null> {
     if (!this.pool) {
       return null;
@@ -868,61 +844,6 @@ export class AppPackViewReadService {
     };
   }
 
-  private async fetchFromRpc(input: Record<string, unknown>, limit: number): Promise<ReadResult> {
-    const params = this.resolveParamsFromInput(input);
-    const step = this.compiled.discoverStep;
-    const filtersByGroup = this.buildOrFilters(step, params);
-    const accountsByPubkey = new Map<string, Buffer>();
-
-    for (const groupFilters of filtersByGroup) {
-      const filters: GetProgramAccountsFilter[] = [
-        { dataSize: this.compiled.accountSize },
-        ...(this.compiled.discriminatorFilter ? [this.compiled.discriminatorFilter] : []),
-        ...groupFilters,
-      ];
-      const accounts = await this.getProgramAccountsViaV2(filters, step.commitment ?? 'confirmed');
-      for (const account of accounts) {
-        accountsByPubkey.set(account.pubkey, account.data);
-      }
-    }
-
-    const decodedRows: DecodedAccountContext[] = [];
-    for (const [pubkey, data] of accountsByPubkey.entries()) {
-      let decoded: Record<string, unknown>;
-      try {
-        decoded = this.coder.decode(this.compiled.accountType, data) as Record<string, unknown>;
-      } catch {
-        continue;
-      }
-      const row: DecodedAccountContext = {
-        account: { pubkey },
-        decoded,
-        param: params,
-        protocol: {
-          programId: this.compiled.programId.toBase58(),
-        },
-      };
-      if (!this.matchesWhere(step.where ?? [], row)) {
-        continue;
-      }
-      decodedRows.push(row);
-    }
-
-    this.sortRows(decodedRows, step.sort ?? []);
-
-    const mapped = decodedRows.map((row) => this.mapSelect(step.select, row));
-    const appliedLimit = Math.max(1, Math.min(limit, step.limit ?? limit, this.compiled.outputMaxItems));
-    const items = mapped.slice(0, appliedLimit);
-    const slot = await this.connection.getSlot(step.commitment ?? 'confirmed');
-
-    return {
-      items,
-      source: 'rpc',
-      slot,
-      generatedAtMs: Date.now(),
-    };
-  }
-
   private decodeAndSelect(
     pubkey: string,
     accountData: Buffer,
@@ -946,141 +867,6 @@ export class AppPackViewReadService {
       return null;
     }
     return this.mapSelect(this.compiled.discoverStep.select, row);
-  }
-
-  private buildOrFilters(step: DiscoverQueryStep, params: Record<string, unknown>): GetProgramAccountsFilter[][] {
-    const groups = step.or_filters ?? [];
-    if (groups.length === 0) {
-      return [[]];
-    }
-
-    const out: GetProgramAccountsFilter[][] = [];
-    for (const group of groups) {
-      const filters: GetProgramAccountsFilter[] = [];
-      for (const condition of group) {
-        const offset = condition.memcmp.offset;
-        const bytes = resolveReference(condition.memcmp.bytesFrom, { param: params });
-        if (typeof bytes !== 'string') {
-          throw new Error(`Invalid memcmp bytesFrom resolution for offset ${offset}.`);
-        }
-        filters.push({
-          memcmp: {
-            offset,
-            bytes: parsePublicKey(bytes, 'memcmp.bytesFrom').toBase58(),
-          },
-        });
-      }
-      out.push(filters);
-    }
-    return out;
-  }
-
-  private async rpcRequest<T>(method: string, params: unknown[]): Promise<T> {
-    const response = await fetch(this.connection.rpcEndpoint, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: `${method}-${Date.now()}`,
-        method,
-        params,
-      }),
-    });
-
-    let payload: { result?: T; error?: { code?: number; message?: string; data?: unknown } };
-    try {
-      payload = (await response.json()) as { result?: T; error?: { code?: number; message?: string; data?: unknown } };
-    } catch {
-      throw new Error(`${method} failed: RPC response is not valid JSON.`);
-    }
-
-    if (!response.ok) {
-      const details = payload?.error?.message ?? response.statusText;
-      throw new Error(`${method} failed (${response.status}): ${details}`);
-    }
-    if (payload.error) {
-      const code = payload.error.code ?? 'unknown';
-      const message = payload.error.message ?? 'Unknown RPC error.';
-      throw new Error(`${method} RPC error (${code}): ${message}`);
-    }
-    if (payload.result === undefined) {
-      throw new Error(`${method} failed: missing result in RPC response.`);
-    }
-    return payload.result;
-  }
-
-  private decodeBase64AccountData(value: string | [string, string]): Buffer {
-    if (Array.isArray(value)) {
-      const [encoded, encoding] = value;
-      if (encoding !== 'base64') {
-        throw new Error(`Unsupported account data encoding from getProgramAccountsV2: ${encoding}`);
-      }
-      return Buffer.from(encoded, 'base64');
-    }
-    return Buffer.from(value, 'base64');
-  }
-
-  private async getProgramAccountsViaV2(
-    filters: GetProgramAccountsFilter[],
-    commitment: Commitment,
-  ): Promise<Array<{ pubkey: string; data: Buffer }>> {
-    const pageSize = 1_000;
-    const maxPages = 10_000;
-    let pages = 0;
-    let paginationKey: string | null = null;
-    const seenPaginationKeys = new Set<string>();
-    const out = new Map<string, Buffer>();
-
-    // No fallback path by design: this service expects getProgramAccountsV2 support.
-    for (;;) {
-      pages += 1;
-      if (pages > maxPages) {
-        throw new Error(`getProgramAccountsV2 exceeded max pages (${maxPages}) for ${this.compiled.namespace}.`);
-      }
-      const config: Record<string, unknown> = {
-        commitment,
-        encoding: 'base64',
-        withContext: false,
-        filters,
-        limit: pageSize,
-      };
-      if (paginationKey) {
-        config.paginationKey = paginationKey;
-      }
-
-      const result = await this.rpcRequest<RpcV2GetProgramAccountsResult>('getProgramAccountsV2', [
-        this.compiled.programId.toBase58(),
-        config,
-      ]);
-      const pageAccounts = Array.isArray(result.accounts) ? result.accounts : [];
-      if (pageAccounts.length === 0) {
-        break;
-      }
-      for (const account of pageAccounts) {
-        if (!account || typeof account.pubkey !== 'string' || !account.account || account.account.data === undefined) {
-          continue;
-        }
-        try {
-          out.set(account.pubkey, this.decodeBase64AccountData(account.account.data));
-        } catch {
-          continue;
-        }
-      }
-
-      const nextKey = typeof result.paginationKey === 'string' && result.paginationKey.length > 0 ? result.paginationKey : null;
-      if (!nextKey) {
-        break;
-      }
-      if (seenPaginationKeys.has(nextKey)) {
-        break;
-      }
-      seenPaginationKeys.add(nextKey);
-      paginationKey = nextKey;
-    }
-
-    return Array.from(out.entries()).map(([pubkey, data]) => ({ pubkey, data }));
   }
 
   private matchesWhere(whereClauses: DiscoverWhereClause[], row: DecodedAccountContext): boolean {
