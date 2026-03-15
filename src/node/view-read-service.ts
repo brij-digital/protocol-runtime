@@ -159,6 +159,7 @@ type CompiledOperation = {
 
 const LEGACY_ORCA_POOLS_TABLE = 'orca_pools';
 const LEGACY_ORCA_HISTORY_TABLE = 'orca_pool_history';
+const ACCOUNT_CACHE_TABLE = 'cached_program_accounts';
 
 function sanitizeIndexName(value: string): string {
   return value.replace(/[^a-zA-Z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 50) || 'idx';
@@ -283,6 +284,44 @@ function chunk<T>(items: T[], size: number): T[][] {
     out.push(items.slice(i, i + size));
   }
   return out;
+}
+
+function decodeBase58(value: string): Buffer {
+  const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  const bytes: number[] = [0];
+  for (let i = 0; i < value.length; i += 1) {
+    const index = alphabet.indexOf(value[i] ?? '');
+    if (index < 0) {
+      throw new Error(`invalid base58 value: ${value}`);
+    }
+    let carry = index;
+    for (let j = 0; j < bytes.length; j += 1) {
+      const x = bytes[j]! * 58 + carry;
+      bytes[j] = x & 0xff;
+      carry = x >> 8;
+    }
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+  for (let i = 0; i < value.length && value[i] === '1'; i += 1) {
+    bytes.push(0);
+  }
+  return Buffer.from(bytes.reverse());
+}
+
+function toBufferSafe(value: unknown): Buffer | null {
+  if (Buffer.isBuffer(value)) {
+    return value;
+  }
+  if (value instanceof Uint8Array) {
+    return Buffer.from(value);
+  }
+  if (typeof value === 'string' && value.startsWith('\\x')) {
+    return Buffer.from(value.slice(2), 'hex');
+  }
+  return null;
 }
 
 function pickFieldBySelectValue(select: Record<string, unknown>, valueRef: string): string | null {
@@ -507,6 +546,7 @@ export class AppPackViewReadService {
 
   async runRead(options: ListPoolsOptions): Promise<ReadResult> {
     const resolvedInput = this.resolveOperationInput(options.input);
+    const resolvedParams = this.resolveTemplateParams(resolvedInput);
     const effectiveLimit = Math.max(1, Math.min(options.limit, this.compiled.outputMaxItems));
     const cacheKey = this.makeCacheKey(resolvedInput, effectiveLimit);
     const now = Date.now();
@@ -519,7 +559,7 @@ export class AppPackViewReadService {
     }
 
     if (this.pool) {
-      const dbValue = await this.fetchFromDatabase(resolvedInput, effectiveLimit);
+      const dbValue = await this.fetchFromAccountCache(resolvedParams, effectiveLimit);
       if (dbValue) {
         this.cache.set(cacheKey, {
           expiresAtMs: dbValue.generatedAtMs + this.cacheTtlMs,
@@ -532,7 +572,9 @@ export class AppPackViewReadService {
     if (!this.pool) {
       throw new Error(`No indexed data available for ${this.compiled.namespace}: DATABASE_URL is not configured.`);
     }
-    throw new Error(`No indexed data available for ${this.compiled.namespace}.`);
+    throw new Error(
+      `No indexed account-cache data available for ${this.compiled.namespace}. Hydrator may still be catching up.`,
+    );
   }
 
   async syncFullToDatabase(): Promise<FullSyncResult | null> {
@@ -727,6 +769,195 @@ export class AppPackViewReadService {
     return resolved;
   }
 
+  private resolveTemplateParams(input: Record<string, unknown>): Record<string, unknown> {
+    const params: Record<string, unknown> = {};
+    for (const [paramName, expression] of Object.entries(this.compiled.paramMap)) {
+      const resolved = resolveReference(expression, { input });
+      if (resolved !== undefined) {
+        params[paramName] = resolved;
+      }
+    }
+    for (const [key, value] of Object.entries(input)) {
+      if (!(key in params)) {
+        params[key] = value;
+      }
+    }
+    return params;
+  }
+
+  private resolveMemcmpBytes(bytesFrom: string, params: Record<string, unknown>): Buffer {
+    const resolved = resolveReference(bytesFrom, { param: params });
+    if (typeof resolved !== 'string' || resolved.length === 0) {
+      throw new Error(`Invalid memcmp bytesFrom value for ${bytesFrom}`);
+    }
+
+    try {
+      return new PublicKey(resolved).toBuffer();
+    } catch {
+      if (/^[1-9A-HJ-NP-Za-km-z]+$/.test(resolved)) {
+        return decodeBase58(resolved);
+      }
+      if (/^[0-9a-fA-F]+$/.test(resolved) && resolved.length % 2 === 0) {
+        return Buffer.from(resolved, 'hex');
+      }
+      throw new Error(`Unable to resolve memcmp bytes for ${bytesFrom}`);
+    }
+  }
+
+  private buildOrFiltersSql(params: Record<string, unknown>, paramStartIndex: number): { sql: string; values: unknown[] } {
+    const groups = this.compiled.discoverStep.or_filters ?? [];
+    if (groups.length === 0) {
+      return { sql: '', values: [] };
+    }
+
+    const values: unknown[] = [];
+    const groupSql: string[] = [];
+    for (const group of groups) {
+      if (!Array.isArray(group) || group.length === 0) {
+        continue;
+      }
+      const andSql: string[] = [];
+      for (const clause of group) {
+        const cmp = clause?.memcmp;
+        if (!cmp) {
+          continue;
+        }
+        const bytes = this.resolveMemcmpBytes(cmp.bytesFrom, params);
+        const offset = Number(cmp.offset);
+        if (!Number.isFinite(offset) || offset < 0) {
+          throw new Error(`Invalid memcmp offset: ${String(cmp.offset)}`);
+        }
+        const pOffset = paramStartIndex + values.length + 1;
+        const pLen = paramStartIndex + values.length + 2;
+        const pHex = paramStartIndex + values.length + 3;
+        andSql.push(`substring(data_bytes from $${pOffset} for $${pLen}) = decode($${pHex}, 'hex')`);
+        values.push(offset + 1, bytes.length, bytes.toString('hex'));
+      }
+      if (andSql.length > 0) {
+        groupSql.push(`(${andSql.join(' AND ')})`);
+      }
+    }
+    if (groupSql.length === 0) {
+      return { sql: '', values: [] };
+    }
+    return {
+      sql: ` AND (${groupSql.join(' OR ')})`,
+      values,
+    };
+  }
+
+  private getEffectiveSortClauses(): DiscoverSortClause[] {
+    const declaredSort = this.compiled.discoverStep.sort ?? [];
+    if (declaredSort.length > 0) {
+      return declaredSort;
+    }
+    if (this.compiled.liquidityField) {
+      return [{ path: 'decoded.liquidity', dir: 'desc' }];
+    }
+    return [];
+  }
+
+  private async fetchFromAccountCache(params: Record<string, unknown>, limit: number): Promise<ReadResult | null> {
+    if (!this.pool) {
+      return null;
+    }
+
+    const queryParams: unknown[] = [this.compiled.programId.toBase58(), this.compiled.accountSize];
+    let sql = `
+      SELECT pubkey, slot::text AS slot, data_bytes
+      FROM ${ACCOUNT_CACHE_TABLE}
+      WHERE owner_program_id = $1
+        AND data_len = $2
+    `;
+
+    const discriminatorFilter = this.compiled.discriminatorFilter;
+    if (discriminatorFilter && 'memcmp' in discriminatorFilter) {
+      const disc = discriminatorFilter.memcmp;
+      const discBytes = decodeBase58(disc.bytes);
+      const pOffset = queryParams.length + 1;
+      const pLen = queryParams.length + 2;
+      const pHex = queryParams.length + 3;
+      sql += ` AND substring(data_bytes from $${pOffset} for $${pLen}) = decode($${pHex}, 'hex')`;
+      queryParams.push((disc.offset ?? 0) + 1, discBytes.length, discBytes.toString('hex'));
+    }
+
+    const filters = this.buildOrFiltersSql(params, queryParams.length);
+    sql += filters.sql;
+    queryParams.push(...filters.values);
+    sql += '\nORDER BY slot DESC, pubkey ASC';
+
+    const result = await this.pool.query<{ pubkey: string; slot: string; data_bytes: unknown }>(sql, queryParams);
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    const rows: DecodedAccountContext[] = [];
+    const whereClauses = this.compiled.discoverStep.where ?? [];
+    for (const record of result.rows) {
+      const accountData = toBufferSafe(record.data_bytes);
+      if (!accountData) {
+        continue;
+      }
+      let decoded: Record<string, unknown>;
+      try {
+        decoded = this.coder.decode(this.compiled.accountType, accountData) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      const row: DecodedAccountContext = {
+        account: { pubkey: record.pubkey },
+        decoded,
+        param: params,
+        protocol: {
+          programId: this.compiled.programId.toBase58(),
+        },
+      };
+      if (!this.matchesWhere(whereClauses, row, params)) {
+        continue;
+      }
+      rows.push(row);
+    }
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    this.sortRows(rows, this.getEffectiveSortClauses());
+    const limitedRows = rows.slice(0, limit);
+
+    const items: Record<string, unknown>[] = [];
+    let maxSlot = 0;
+    const slotByPubkey = new Map<string, number>();
+    for (const record of result.rows) {
+      const slot = Number.parseInt(record.slot, 10);
+      if (!Number.isFinite(slot) || slot <= 0) {
+        continue;
+      }
+      slotByPubkey.set(record.pubkey, slot);
+      if (slot > maxSlot) {
+        maxSlot = slot;
+      }
+    }
+    for (const row of limitedRows) {
+      items.push(this.mapSelect(this.compiled.discoverStep.select, row));
+      const rowSlot = slotByPubkey.get(row.account.pubkey) ?? 0;
+      if (rowSlot > maxSlot) {
+        maxSlot = rowSlot;
+      }
+    }
+
+    if (items.length === 0) {
+      return null;
+    }
+
+    return {
+      items,
+      source: 'db',
+      slot: maxSlot,
+      generatedAtMs: Date.now(),
+    };
+  }
+
   private async fetchFromDatabase(input: Record<string, unknown>, limit: number): Promise<ReadResult | null> {
     if (!this.pool) {
       return null;
@@ -863,16 +1094,21 @@ export class AppPackViewReadService {
         programId: this.compiled.programId.toBase58(),
       },
     };
-    if (!this.matchesWhere(this.compiled.discoverStep.where ?? [], row)) {
+    if (!this.matchesWhere(this.compiled.discoverStep.where ?? [], row, params)) {
       return null;
     }
     return this.mapSelect(this.compiled.discoverStep.select, row);
   }
 
-  private matchesWhere(whereClauses: DiscoverWhereClause[], row: DecodedAccountContext): boolean {
+  private matchesWhere(
+    whereClauses: DiscoverWhereClause[],
+    row: DecodedAccountContext,
+    params: Record<string, unknown>,
+  ): boolean {
     for (const clause of whereClauses) {
       const left = readByPath(row, clause.path);
-      if (!compareValues(left, clause.value, clause.op)) {
+      const right = resolveReference(clause.value, { param: params });
+      if (!compareValues(left, right, clause.op)) {
         return false;
       }
     }
