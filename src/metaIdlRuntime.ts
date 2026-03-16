@@ -359,6 +359,7 @@ export type MetaOperationSummary = {
   operationId: string;
   label?: string;
   instruction: string;
+  executionKind: 'read' | 'write';
   inputs: Record<
     string,
     {
@@ -1681,6 +1682,7 @@ export async function listMetaOperations(options: {
         operationId,
         ...(operationLabel ? { label: operationLabel } : {}),
         instruction: operation.instruction,
+        executionKind: operation.instruction ? 'write' : 'read',
         inputs,
         ...(crossValidation.length > 0 ? { crossValidation } : {}),
         ...(readOutput ? { readOutput } : {}),
@@ -1846,6 +1848,42 @@ export async function listMetaApps(options: {
             ),
           };
         });
+        const successTransitions = transitions.filter((transition) => transition.on === 'success');
+        if (successTransitions.length > 1) {
+          throw new Error(
+            `${options.protocolId}.apps.${appId}.steps[${index}].transitions has multiple success targets. Use one success transition + next_on_success.`,
+          );
+        }
+        if (successTransitions.length === 1) {
+          if (!nextOnSuccess) {
+            throw new Error(
+              `${options.protocolId}.apps.${appId}.steps[${index}] defines success transition but is missing next_on_success.`,
+            );
+          }
+          if (nextOnSuccess !== successTransitions[0]!.to) {
+            throw new Error(
+              `${options.protocolId}.apps.${appId}.steps[${index}] next_on_success must match success transition target ${successTransitions[0]!.to}.`,
+            );
+          }
+        }
+        const errorTransitions = transitions.filter((transition) => transition.on === 'error');
+        if (errorTransitions.length > 1) {
+          throw new Error(
+            `${options.protocolId}.apps.${appId}.steps[${index}].transitions has multiple error targets. Use one error transition + next_on_error.`,
+          );
+        }
+        if (errorTransitions.length === 1) {
+          if (!nextOnError) {
+            throw new Error(
+              `${options.protocolId}.apps.${appId}.steps[${index}] defines error transition but is missing next_on_error.`,
+            );
+          }
+          if (nextOnError !== errorTransitions[0]!.to) {
+            throw new Error(
+              `${options.protocolId}.apps.${appId}.steps[${index}] next_on_error must match error transition target ${errorTransitions[0]!.to}.`,
+            );
+          }
+        }
 
         const blockingRaw = asRecord(step.blocking, `${options.protocolId}.apps.${appId}.steps[${index}].blocking`);
         if (!Array.isArray(blockingRaw.depends_on)) {
