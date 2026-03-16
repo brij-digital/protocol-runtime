@@ -141,14 +141,14 @@ type UserAppActionSpec = {
   kind: 'run' | 'back' | 'reset';
   label: string;
   mode?: 'view' | 'simulate' | 'send';
-  variant?: 'primary' | 'secondary' | 'ghost';
+  variant: 'primary' | 'secondary' | 'ghost';
 };
 
 type UserAppStatusTextSpec = {
   idle?: string;
-  running?: string;
-  success?: string;
-  error?: string;
+  running: string;
+  success: string;
+  error: string;
 };
 
 type UserAppStepSuccessSpec =
@@ -172,12 +172,12 @@ type UserAppStepSpec = {
   description?: string;
   next_on_success?: string;
   next_on_error?: string;
-  status_text?: UserAppStatusTextSpec;
+  status_text: UserAppStatusTextSpec;
   input_from?: Record<string, unknown>;
   transitions: UserAppStepTransitionSpec[];
   blocking: UserAppStepBlockingSpec;
   success: UserAppStepSuccessSpec;
-  actions?: UserAppActionSpec[];
+  actions: UserAppActionSpec[];
   ui?: {
     kind: 'select_from_derived';
     source: string;
@@ -410,11 +410,11 @@ export type MetaAppStepSummary = {
   description?: string;
   nextOnSuccess?: string;
   nextOnError?: string;
-  statusText?: {
+  statusText: {
     idle?: string;
-    running?: string;
-    success?: string;
-    error?: string;
+    running: string;
+    success: string;
+    error: string;
   };
   actions: Array<{
     actionId: string;
@@ -1739,88 +1739,104 @@ export async function listMetaApps(options: {
           typeof step.next_on_error === 'string' && step.next_on_error.trim().length > 0
             ? step.next_on_error.trim()
             : undefined;
-        const statusText =
-          step.status_text && typeof step.status_text === 'object' && !Array.isArray(step.status_text)
-            ? (() => {
-                const rawStatus = asRecord(
-                  step.status_text,
-                  `${options.protocolId}.apps.${appId}.steps[${index}].status_text`,
-                );
-                return {
-                  ...(typeof rawStatus.idle === 'string' && rawStatus.idle.trim().length > 0
-                    ? { idle: rawStatus.idle.trim() }
-                    : {}),
-                  ...(typeof rawStatus.running === 'string' && rawStatus.running.trim().length > 0
-                    ? { running: rawStatus.running.trim() }
-                    : {}),
-                  ...(typeof rawStatus.success === 'string' && rawStatus.success.trim().length > 0
-                    ? { success: rawStatus.success.trim() }
-                    : {}),
-                  ...(typeof rawStatus.error === 'string' && rawStatus.error.trim().length > 0
-                    ? { error: rawStatus.error.trim() }
-                    : {}),
-                };
-              })()
-            : undefined;
+        const statusText = (() => {
+          if (!step.status_text || typeof step.status_text !== 'object' || Array.isArray(step.status_text)) {
+            throw new Error(`${options.protocolId}.apps.${appId}.steps[${index}].status_text must be an object.`);
+          }
+          const rawStatus = asRecord(
+            step.status_text,
+            `${options.protocolId}.apps.${appId}.steps[${index}].status_text`,
+          );
+          const running = asString(
+            rawStatus.running,
+            `${options.protocolId}.apps.${appId}.steps[${index}].status_text.running`,
+          ).trim();
+          const success = asString(
+            rawStatus.success,
+            `${options.protocolId}.apps.${appId}.steps[${index}].status_text.success`,
+          ).trim();
+          const error = asString(
+            rawStatus.error,
+            `${options.protocolId}.apps.${appId}.steps[${index}].status_text.error`,
+          ).trim();
+          if (!running || !success || !error) {
+            throw new Error(
+              `${options.protocolId}.apps.${appId}.steps[${index}].status_text running/success/error must be non-empty.`,
+            );
+          }
+          return {
+            ...(typeof rawStatus.idle === 'string' && rawStatus.idle.trim().length > 0
+              ? { idle: rawStatus.idle.trim() }
+              : {}),
+            running,
+            success,
+            error,
+          };
+        })();
         const inputFrom =
           step.input_from && typeof step.input_from === 'object' && !Array.isArray(step.input_from)
             ? (cloneJsonLike(step.input_from) as Record<string, unknown>)
             : {};
-        const actions = Array.isArray(step.actions)
-          ? step.actions.map((actionRaw, actionIndex) => {
-              const action = asRecord(
-                actionRaw,
-                `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}]`,
+        if (!Array.isArray(step.actions) || step.actions.length === 0) {
+          throw new Error(`${options.protocolId}.apps.${appId}.steps[${index}].actions must be a non-empty array.`);
+        }
+        const actions = step.actions.map((actionRaw, actionIndex) => {
+          const action = asRecord(
+            actionRaw,
+            `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}]`,
+          );
+          const kind = asString(
+            action.kind,
+            `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].kind`,
+          );
+          if (kind !== 'run' && kind !== 'back' && kind !== 'reset') {
+            throw new Error(
+              `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].kind must be run|back|reset.`,
+            );
+          }
+          const variant = asString(
+            action.variant,
+            `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].variant`,
+          ).trim();
+          if (variant !== 'primary' && variant !== 'secondary' && variant !== 'ghost') {
+            throw new Error(
+              `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].variant must be primary|secondary|ghost.`,
+            );
+          }
+          const mode =
+            typeof action.mode === 'string' && action.mode.trim().length > 0
+              ? action.mode.trim()
+              : undefined;
+          if (kind === 'run') {
+            if (!mode) {
+              throw new Error(
+                `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].mode is required for run actions.`,
               );
-              const kind = asString(
-                action.kind,
-                `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].kind`,
+            }
+            if (mode !== 'view' && mode !== 'simulate' && mode !== 'send') {
+              throw new Error(
+                `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].mode must be view|simulate|send.`,
               );
-              if (kind !== 'run' && kind !== 'back' && kind !== 'reset') {
-                throw new Error(
-                  `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].kind must be run|back|reset.`,
-                );
-              }
-              const mode =
-                typeof action.mode === 'string' && action.mode.trim().length > 0
-                  ? action.mode.trim()
-                  : undefined;
-              if (mode && mode !== 'view' && mode !== 'simulate' && mode !== 'send') {
-                throw new Error(
-                  `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].mode must be view|simulate|send.`,
-                );
-              }
-              const variantRaw =
-                typeof action.variant === 'string' && action.variant.trim().length > 0
-                  ? action.variant.trim()
-                  : undefined;
-              if (
-                variantRaw &&
-                variantRaw !== 'primary' &&
-                variantRaw !== 'secondary' &&
-                variantRaw !== 'ghost'
-              ) {
-                throw new Error(
-                  `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].variant must be primary|secondary|ghost.`,
-                );
-              }
-              const variant =
-                variantRaw ?? (kind === 'run' ? 'primary' : 'ghost');
-              return {
-                actionId: asString(
-                  action.id,
-                  `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].id`,
-                ),
-                kind,
-                label: asString(
-                  action.label,
-                  `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].label`,
-                ),
-                ...(mode ? { mode } : {}),
-                variant,
-              };
-            })
-          : [];
+            }
+          } else if (mode) {
+            throw new Error(
+              `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].mode is only allowed for run actions.`,
+            );
+          }
+          return {
+            actionId: asString(
+              action.id,
+              `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].id`,
+            ),
+            kind,
+            label: asString(
+              action.label,
+              `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].label`,
+            ),
+            ...(mode ? { mode } : {}),
+            variant,
+          };
+        });
 
         const transitionsRaw = step.transitions;
         if (!Array.isArray(transitionsRaw)) {
@@ -1979,7 +1995,7 @@ export async function listMetaApps(options: {
           ...(typeof step.description === 'string' && step.description.length > 0 ? { description: step.description } : {}),
           ...(nextOnSuccess ? { nextOnSuccess } : {}),
           ...(nextOnError ? { nextOnError } : {}),
-          ...(statusText && Object.keys(statusText).length > 0 ? { statusText } : {}),
+          statusText,
           actions,
           inputFrom,
           transitions,
