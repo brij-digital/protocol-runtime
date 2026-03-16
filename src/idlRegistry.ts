@@ -5,6 +5,8 @@ export type ProtocolManifest = {
   programId: string;
   idlPath: string;
   metaPath?: string;
+  metaCorePath?: string;
+  appPath?: string;
   transport: string;
   supportedCommands: string[];
   status: 'active' | 'inactive';

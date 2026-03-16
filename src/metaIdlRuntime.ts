@@ -10,6 +10,8 @@ import { normalizeIdlForAnchorCoder } from './normalizeIdl';
 import { resolveAppUrl } from './appUrl';
 
 const META_IDL_SCHEMA = 'meta-idl.v0.6';
+const META_IDL_CORE_SCHEMA = 'meta-idl.core.v0.6';
+const META_APP_SCHEMA = 'meta-app.v0.1';
 const DEFAULT_SPL_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 
 type BuiltinResolverName =
@@ -102,13 +104,28 @@ type ActionSpec = {
 };
 
 type UserAppStepTransitionSpec = {
-  on: 'success';
+  on: 'success' | 'error' | 'manual';
   to: string;
 };
 
 type UserAppStepBlockingSpec = {
   depends_on: string[];
   requires_paths?: string[];
+};
+
+type UserAppActionSpec = {
+  id: string;
+  kind: 'run' | 'back' | 'reset';
+  label: string;
+  mode?: 'view' | 'simulate' | 'send';
+  variant?: 'primary' | 'secondary' | 'ghost';
+};
+
+type UserAppStatusTextSpec = {
+  idle?: string;
+  running?: string;
+  success?: string;
+  error?: string;
 };
 
 type UserAppStepSuccessSpec =
@@ -126,13 +143,18 @@ type UserAppStepSuccessSpec =
 
 type UserAppStepSpec = {
   id: string;
+  label?: string;
   operation: string;
   title: string;
   description?: string;
+  next_on_success?: string;
+  next_on_error?: string;
+  status_text?: UserAppStatusTextSpec;
   input_from?: Record<string, unknown>;
   transitions: UserAppStepTransitionSpec[];
   blocking: UserAppStepBlockingSpec;
   success: UserAppStepSuccessSpec;
+  actions?: UserAppActionSpec[];
   ui?: {
     kind: 'select_from_derived';
     source: string;
@@ -147,6 +169,7 @@ type UserAppStepSpec = {
 };
 
 type UserAppSpec = {
+  label?: string;
   title: string;
   description?: string;
   entry_step: string;
@@ -204,10 +227,30 @@ type LookupSourceSpec =
   | { kind: 'inline'; items: unknown[] }
   | { kind: 'http_json'; url: string; items_path?: string; ttl_ms?: number };
 
+type MetaCoreSpec = {
+  schema: string;
+  version: string;
+  protocolId: string;
+  label?: string;
+  sources?: Record<string, LookupSourceSpec>;
+  templates?: Record<string, TemplateSpec>;
+  operations?: Record<string, ActionSpec>;
+  apps?: Record<string, UserAppSpec>;
+};
+
+type MetaAppSpec = {
+  schema: string;
+  version: string;
+  protocolId: string;
+  label?: string;
+  apps: Record<string, UserAppSpec>;
+};
+
 type MetaIdlSpec = {
   schema: string;
   version: string;
   protocolId: string;
+  label?: string;
   sources?: Record<string, LookupSourceSpec>;
   templates?: Record<string, TemplateSpec>;
   operations?: Record<string, ActionSpec>;
@@ -221,7 +264,9 @@ type ResolverContext = {
     network: string;
     programId: string;
     idlPath: string;
-    metaPath: string;
+    metaPath?: string;
+    metaCorePath?: string;
+    appPath?: string;
   };
   meta: MetaIdlSpec;
   input: Record<string, unknown>;
@@ -314,12 +359,28 @@ export type MetaOperationSummary = {
 
 export type MetaAppStepSummary = {
   stepId: string;
+  label: string;
   operationId: string;
   title: string;
   description?: string;
+  nextOnSuccess?: string;
+  nextOnError?: string;
+  statusText?: {
+    idle?: string;
+    running?: string;
+    success?: string;
+    error?: string;
+  };
+  actions: Array<{
+    actionId: string;
+    kind: 'run' | 'back' | 'reset';
+    label: string;
+    mode?: 'view' | 'simulate' | 'send';
+    variant: 'primary' | 'secondary' | 'ghost';
+  }>;
   inputFrom: Record<string, unknown>;
   transitions: Array<{
-    on: 'success';
+    on: 'success' | 'error' | 'manual';
     to: string;
   }>;
   blocking: {
@@ -353,6 +414,7 @@ export type MetaAppStepSummary = {
 
 export type MetaAppSummary = {
   appId: string;
+  label: string;
   title: string;
   description?: string;
   entryStepId: string;
@@ -688,6 +750,51 @@ function assertMetaSpec(meta: MetaIdlSpec, protocolId: string): MetaIdlSpec {
   return meta;
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function toMetaCoreSpec(value: unknown, protocolId: string, sourcePath: string): MetaCoreSpec {
+  if (!isObject(value)) {
+    throw new Error(`Invalid meta core for ${protocolId}: ${sourcePath} must be an object.`);
+  }
+  const schema = asString(value.schema, `${protocolId}:${sourcePath}.schema`);
+  if (schema !== META_IDL_CORE_SCHEMA && schema !== META_IDL_SCHEMA) {
+    throw new Error(
+      `Unsupported meta core schema for ${protocolId}: ${schema}. Required: ${META_IDL_CORE_SCHEMA} or ${META_IDL_SCHEMA}.`,
+    );
+  }
+  const protocolInFile = asString(value.protocolId, `${protocolId}:${sourcePath}.protocolId`);
+  if (protocolInFile !== protocolId) {
+    throw new Error(
+      `Meta core protocolId mismatch in ${sourcePath}: expected ${protocolId}, got ${protocolInFile}.`,
+    );
+  }
+  return value as MetaCoreSpec;
+}
+
+function toMetaAppSpec(value: unknown, protocolId: string, sourcePath: string): MetaAppSpec {
+  if (!isObject(value)) {
+    throw new Error(`Invalid meta app for ${protocolId}: ${sourcePath} must be an object.`);
+  }
+  const schema = asString(value.schema, `${protocolId}:${sourcePath}.schema`);
+  if (schema !== META_APP_SCHEMA) {
+    throw new Error(
+      `Unsupported meta app schema for ${protocolId}: ${schema}. Required: ${META_APP_SCHEMA}.`,
+    );
+  }
+  const protocolInFile = asString(value.protocolId, `${protocolId}:${sourcePath}.protocolId`);
+  if (protocolInFile !== protocolId) {
+    throw new Error(
+      `Meta app protocolId mismatch in ${sourcePath}: expected ${protocolId}, got ${protocolInFile}.`,
+    );
+  }
+  if (!isObject(value.apps)) {
+    throw new Error(`Meta app for ${protocolId} is missing apps object (${sourcePath}).`);
+  }
+  return value as MetaAppSpec;
+}
+
 function resolveOperationSpec(meta: MetaIdlSpec, protocolId: string, operationId: string): ActionSpec {
   const operationSpec = meta.operations?.[operationId];
   if (!operationSpec) {
@@ -935,18 +1042,51 @@ async function loadMetaSpec(protocolId: string): Promise<MetaIdlSpec> {
   }
 
   const protocol = await getProtocolById(protocolId);
-  if (!protocol.metaPath) {
-    throw new Error(`Protocol ${protocolId} does not define metaPath in registry.`);
+  const corePath = protocol.metaCorePath ?? protocol.metaPath;
+  if (!corePath) {
+    throw new Error(
+      `Protocol ${protocolId} does not define metaCorePath or metaPath in registry.`,
+    );
   }
 
-  const response = await fetch(resolveAppUrl(protocol.metaPath));
-  if (!response.ok) {
-    throw new Error(`Failed to load meta IDL from ${protocol.metaPath}`);
-  }
+  const loadJsonByPath = async (filePath: string): Promise<unknown> => {
+    const response = await fetch(resolveAppUrl(filePath));
+    if (!response.ok) {
+      throw new Error(`Failed to load JSON from ${filePath}.`);
+    }
+    return response.json();
+  };
 
-  const parsed = assertMetaSpec((await response.json()) as MetaIdlSpec, protocolId);
-  metaCache.set(protocolId, parsed);
-  return parsed;
+  const coreSpec = toMetaCoreSpec(await loadJsonByPath(corePath), protocolId, corePath);
+  const isLegacyCombined = coreSpec.schema === META_IDL_SCHEMA;
+
+  const appPath = isLegacyCombined
+    ? null
+    : (() => {
+        if (!protocol.appPath) {
+          throw new Error(`Protocol ${protocolId} is missing appPath for ${META_APP_SCHEMA}.`);
+        }
+        return protocol.appPath;
+      })();
+
+  const resolvedApps = isLegacyCombined
+    ? (coreSpec.apps ?? {})
+    : toMetaAppSpec(await loadJsonByPath(appPath!), protocolId, appPath!).apps;
+
+  const merged: MetaIdlSpec = {
+    schema: META_IDL_SCHEMA,
+    version: coreSpec.version,
+    protocolId: coreSpec.protocolId,
+    ...(typeof coreSpec.label === 'string' ? { label: coreSpec.label } : {}),
+    ...(coreSpec.sources ? { sources: coreSpec.sources } : {}),
+    ...(coreSpec.templates ? { templates: coreSpec.templates } : {}),
+    ...(coreSpec.operations ? { operations: coreSpec.operations } : {}),
+    apps: resolvedApps,
+  };
+
+  const asserted = assertMetaSpec(merged, protocolId);
+  metaCache.set(protocolId, asserted);
+  return asserted;
 }
 
 async function loadProtocolIdl(protocolId: string): Promise<Idl> {
@@ -1244,7 +1384,9 @@ async function prepareMetaOperationInternal(options: {
       network: protocol.network,
       programId: protocol.programId,
       idlPath: protocol.idlPath,
-      metaPath: protocol.metaPath,
+      ...(protocol.metaPath ? { metaPath: protocol.metaPath } : {}),
+      ...(protocol.metaCorePath ? { metaCorePath: protocol.metaCorePath } : {}),
+      ...(protocol.appPath ? { appPath: protocol.appPath } : {}),
     },
     meta,
   };
@@ -1458,6 +1600,7 @@ export async function listMetaApps(options: {
   const apps = Object.entries(appsSpec)
     .map(([appId, appRaw]) => {
       const app = asRecord(appRaw, `${options.protocolId}.apps.${appId}`);
+      const appLabel = asString(app.label, `${options.protocolId}.apps.${appId}.label`);
       const title = asString(app.title, `${options.protocolId}.apps.${appId}.title`);
       const entryStepId = asString(app.entry_step, `${options.protocolId}.apps.${appId}.entry_step`);
       if (!Array.isArray(app.steps) || app.steps.length === 0) {
@@ -1473,11 +1616,98 @@ export async function listMetaApps(options: {
             `${options.protocolId}.apps.${appId}.steps[${index}] references unknown operation ${operationId}.`,
           );
         }
+        const stepLabel = asString(step.label, `${options.protocolId}.apps.${appId}.steps[${index}].label`);
         const stepTitle = asString(step.title, `${options.protocolId}.apps.${appId}.steps[${index}].title`);
+        const nextOnSuccess =
+          typeof step.next_on_success === 'string' && step.next_on_success.trim().length > 0
+            ? step.next_on_success.trim()
+            : undefined;
+        const nextOnError =
+          typeof step.next_on_error === 'string' && step.next_on_error.trim().length > 0
+            ? step.next_on_error.trim()
+            : undefined;
+        const statusText =
+          step.status_text && typeof step.status_text === 'object' && !Array.isArray(step.status_text)
+            ? (() => {
+                const rawStatus = asRecord(
+                  step.status_text,
+                  `${options.protocolId}.apps.${appId}.steps[${index}].status_text`,
+                );
+                return {
+                  ...(typeof rawStatus.idle === 'string' && rawStatus.idle.trim().length > 0
+                    ? { idle: rawStatus.idle.trim() }
+                    : {}),
+                  ...(typeof rawStatus.running === 'string' && rawStatus.running.trim().length > 0
+                    ? { running: rawStatus.running.trim() }
+                    : {}),
+                  ...(typeof rawStatus.success === 'string' && rawStatus.success.trim().length > 0
+                    ? { success: rawStatus.success.trim() }
+                    : {}),
+                  ...(typeof rawStatus.error === 'string' && rawStatus.error.trim().length > 0
+                    ? { error: rawStatus.error.trim() }
+                    : {}),
+                };
+              })()
+            : undefined;
         const inputFrom =
           step.input_from && typeof step.input_from === 'object' && !Array.isArray(step.input_from)
             ? (cloneJsonLike(step.input_from) as Record<string, unknown>)
             : {};
+        const actions = Array.isArray(step.actions)
+          ? step.actions.map((actionRaw, actionIndex) => {
+              const action = asRecord(
+                actionRaw,
+                `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}]`,
+              );
+              const kind = asString(
+                action.kind,
+                `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].kind`,
+              );
+              if (kind !== 'run' && kind !== 'back' && kind !== 'reset') {
+                throw new Error(
+                  `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].kind must be run|back|reset.`,
+                );
+              }
+              const mode =
+                typeof action.mode === 'string' && action.mode.trim().length > 0
+                  ? action.mode.trim()
+                  : undefined;
+              if (mode && mode !== 'view' && mode !== 'simulate' && mode !== 'send') {
+                throw new Error(
+                  `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].mode must be view|simulate|send.`,
+                );
+              }
+              const variantRaw =
+                typeof action.variant === 'string' && action.variant.trim().length > 0
+                  ? action.variant.trim()
+                  : undefined;
+              if (
+                variantRaw &&
+                variantRaw !== 'primary' &&
+                variantRaw !== 'secondary' &&
+                variantRaw !== 'ghost'
+              ) {
+                throw new Error(
+                  `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].variant must be primary|secondary|ghost.`,
+                );
+              }
+              const variant =
+                variantRaw ?? (kind === 'run' ? 'primary' : 'ghost');
+              return {
+                actionId: asString(
+                  action.id,
+                  `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].id`,
+                ),
+                kind,
+                label: asString(
+                  action.label,
+                  `${options.protocolId}.apps.${appId}.steps[${index}].actions[${actionIndex}].label`,
+                ),
+                ...(mode ? { mode } : {}),
+                variant,
+              };
+            })
+          : [];
 
         const transitionsRaw = step.transitions;
         if (!Array.isArray(transitionsRaw)) {
@@ -1492,13 +1722,13 @@ export async function listMetaApps(options: {
             transition.on,
             `${options.protocolId}.apps.${appId}.steps[${index}].transitions[${transitionIndex}].on`,
           );
-          if (on !== 'success') {
+          if (on !== 'success' && on !== 'error' && on !== 'manual') {
             throw new Error(
-              `${options.protocolId}.apps.${appId}.steps[${index}].transitions[${transitionIndex}].on must be "success".`,
+              `${options.protocolId}.apps.${appId}.steps[${index}].transitions[${transitionIndex}].on must be success|error|manual.`,
             );
           }
           return {
-            on: 'success' as const,
+            on: on as 'success' | 'error' | 'manual',
             to: asString(
               transition.to,
               `${options.protocolId}.apps.${appId}.steps[${index}].transitions[${transitionIndex}].to`,
@@ -1594,9 +1824,14 @@ export async function listMetaApps(options: {
 
         return {
           stepId,
+          label: stepLabel,
           operationId,
           title: stepTitle,
           ...(typeof step.description === 'string' && step.description.length > 0 ? { description: step.description } : {}),
+          ...(nextOnSuccess ? { nextOnSuccess } : {}),
+          ...(nextOnError ? { nextOnError } : {}),
+          ...(statusText && Object.keys(statusText).length > 0 ? { statusText } : {}),
+          actions,
           inputFrom,
           transitions,
           blocking: {
@@ -1627,6 +1862,16 @@ export async function listMetaApps(options: {
             );
           }
         }
+        if (step.nextOnSuccess && !stepIdSet.has(step.nextOnSuccess)) {
+          throw new Error(
+            `${options.protocolId}.apps.${appId}.steps.${step.stepId}.next_on_success references unknown step ${step.nextOnSuccess}.`,
+          );
+        }
+        if (step.nextOnError && !stepIdSet.has(step.nextOnError)) {
+          throw new Error(
+            `${options.protocolId}.apps.${appId}.steps.${step.stepId}.next_on_error references unknown step ${step.nextOnError}.`,
+          );
+        }
         for (const transition of step.transitions) {
           if (!stepIdSet.has(transition.to)) {
             throw new Error(
@@ -1638,6 +1883,7 @@ export async function listMetaApps(options: {
 
       return {
         appId,
+        label: appLabel,
         title,
         ...(typeof app.description === 'string' && app.description.length > 0 ? { description: app.description } : {}),
         entryStepId,

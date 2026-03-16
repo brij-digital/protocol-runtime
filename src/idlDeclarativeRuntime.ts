@@ -23,6 +23,8 @@ type IdlProtocol = {
   programId: string;
   idlPath: string;
   metaPath?: string;
+  metaCorePath?: string;
+  appPath?: string;
   transport: string;
   supportedCommands: string[];
   status: 'active' | 'inactive';
@@ -523,6 +525,8 @@ export async function listIdlProtocols(): Promise<{
     programId: string;
     idlPath: string;
     metaPath: string | null;
+    metaCorePath: string | null;
+    appPath: string | null;
     supportedCommands: string[];
     status: 'active' | 'inactive';
   }>;
@@ -545,6 +549,8 @@ export async function listIdlProtocols(): Promise<{
       programId: protocol.programId,
       idlPath: protocol.idlPath,
       metaPath: protocol.metaPath ?? null,
+      metaCorePath: protocol.metaCorePath ?? null,
+      appPath: protocol.appPath ?? null,
       supportedCommands: protocol.supportedCommands ?? [],
       status: protocol.status,
     })),
