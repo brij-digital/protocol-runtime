@@ -69,7 +69,6 @@ type ActionInputSpec = {
   required?: boolean;
   default?: unknown;
   discover_from?: string;
-  ui_tier?: 'enduser' | 'geek';
   ui_editable?: boolean;
   label?: string;
   placeholder?: string;
@@ -421,7 +420,6 @@ export type MetaOperationSummary = {
       default?: unknown;
       discover_from?: string;
       discover_stage?: 'discover' | 'derive' | 'compute' | 'input' | 'unknown';
-      ui_tier?: 'enduser' | 'geek';
       ui_editable?: boolean;
       label?: string;
       placeholder?: string;
@@ -1786,7 +1784,6 @@ export async function listMetaOperations(options: {
             ...(spec.default !== undefined ? { default: cloneJsonLike(spec.default) } : {}),
             ...(spec.discover_from ? { discover_from: spec.discover_from } : {}),
             ...(spec.discover_from ? { discover_stage: resolveDiscoverStage(spec.discover_from, operation) } : {}),
-            ...(spec.ui_tier ? { ui_tier: spec.ui_tier } : {}),
             ...(typeof spec.ui_editable === 'boolean' ? { ui_editable: spec.ui_editable } : {}),
             ...(typeof spec.label === 'string' && spec.label.trim().length > 0 ? { label: spec.label.trim() } : {}),
             ...(typeof spec.placeholder === 'string' && spec.placeholder.trim().length > 0
