@@ -128,7 +128,7 @@ type ActionSpec = {
 };
 
 type UserAppStepTransitionSpec = {
-  on: 'success' | 'error' | 'manual';
+  on: 'success';
   to: string;
 };
 
@@ -157,11 +157,7 @@ type UserAppStepSuccessSpec =
       kind: 'operation_ok';
     }
   | {
-      kind: 'selection_made';
-      path: string;
-    }
-  | {
-      kind: 'path_truthy';
+      kind: 'value_present';
       path: string;
     };
 
@@ -172,7 +168,6 @@ type UserAppStepSpec = {
   title: string;
   description?: string;
   next_on_success?: string;
-  next_on_error?: string;
   status_text: UserAppStatusTextSpec;
   input_from?: Record<string, unknown>;
   transitions: UserAppStepTransitionSpec[];
@@ -460,7 +455,6 @@ export type MetaAppStepSummary = {
   title: string;
   description?: string;
   nextOnSuccess?: string;
-  nextOnError?: string;
   statusText: {
     idle?: string;
     running: string;
@@ -476,7 +470,7 @@ export type MetaAppStepSummary = {
   }>;
   inputFrom: Record<string, unknown>;
   transitions: Array<{
-    on: 'success' | 'error' | 'manual';
+    on: 'success';
     to: string;
   }>;
   blocking: {
@@ -488,11 +482,7 @@ export type MetaAppStepSummary = {
         kind: 'operation_ok';
       }
     | {
-        kind: 'selection_made';
-        path: string;
-      }
-    | {
-        kind: 'path_truthy';
+        kind: 'value_present';
         path: string;
       };
   ui?: {
@@ -1871,10 +1861,6 @@ export async function listMetaApps(options: {
           typeof step.next_on_success === 'string' && step.next_on_success.trim().length > 0
             ? step.next_on_success.trim()
             : undefined;
-        const nextOnError =
-          typeof step.next_on_error === 'string' && step.next_on_error.trim().length > 0
-            ? step.next_on_error.trim()
-            : undefined;
         const statusText = (() => {
           if (!step.status_text || typeof step.status_text !== 'object' || Array.isArray(step.status_text)) {
             throw new Error(`${options.protocolId}.apps.${appId}.steps[${index}].status_text must be an object.`);
@@ -1987,13 +1973,13 @@ export async function listMetaApps(options: {
             transition.on,
             `${options.protocolId}.apps.${appId}.steps[${index}].transitions[${transitionIndex}].on`,
           );
-          if (on !== 'success' && on !== 'error' && on !== 'manual') {
+          if (on !== 'success') {
             throw new Error(
-              `${options.protocolId}.apps.${appId}.steps[${index}].transitions[${transitionIndex}].on must be success|error|manual.`,
+              `${options.protocolId}.apps.${appId}.steps[${index}].transitions[${transitionIndex}].on must be success.`,
             );
           }
           return {
-            on: on as 'success' | 'error' | 'manual',
+            on: 'success' as const,
             to: asString(
               transition.to,
               `${options.protocolId}.apps.${appId}.steps[${index}].transitions[${transitionIndex}].to`,
@@ -2015,24 +2001,6 @@ export async function listMetaApps(options: {
           if (nextOnSuccess !== successTransitions[0]!.to) {
             throw new Error(
               `${options.protocolId}.apps.${appId}.steps[${index}] next_on_success must match success transition target ${successTransitions[0]!.to}.`,
-            );
-          }
-        }
-        const errorTransitions = transitions.filter((transition) => transition.on === 'error');
-        if (errorTransitions.length > 1) {
-          throw new Error(
-            `${options.protocolId}.apps.${appId}.steps[${index}].transitions has multiple error targets. Use one error transition + next_on_error.`,
-          );
-        }
-        if (errorTransitions.length === 1) {
-          if (!nextOnError) {
-            throw new Error(
-              `${options.protocolId}.apps.${appId}.steps[${index}] defines error transition but is missing next_on_error.`,
-            );
-          }
-          if (nextOnError !== errorTransitions[0]!.to) {
-            throw new Error(
-              `${options.protocolId}.apps.${appId}.steps[${index}] next_on_error must match error transition target ${errorTransitions[0]!.to}.`,
             );
           }
         }
@@ -2060,25 +2028,17 @@ export async function listMetaApps(options: {
         const success: MetaAppStepSummary['success'] =
           successKind === 'operation_ok'
             ? { kind: 'operation_ok' }
-            : successKind === 'selection_made'
+            : successKind === 'value_present'
               ? {
-                  kind: 'selection_made',
+                  kind: 'value_present',
                   path: asString(
                     successRaw.path,
                     `${options.protocolId}.apps.${appId}.steps[${index}].success.path`,
                   ),
                 }
-              : successKind === 'path_truthy'
-                ? {
-                    kind: 'path_truthy',
-                    path: asString(
-                      successRaw.path,
-                      `${options.protocolId}.apps.${appId}.steps[${index}].success.path`,
-                    ),
-                  }
                 : (() => {
                     throw new Error(
-                      `${options.protocolId}.apps.${appId}.steps[${index}].success.kind must be operation_ok|selection_made|path_truthy.`,
+                      `${options.protocolId}.apps.${appId}.steps[${index}].success.kind must be operation_ok|value_present.`,
                     );
                   })();
 
@@ -2130,7 +2090,6 @@ export async function listMetaApps(options: {
           title: stepTitle,
           ...(typeof step.description === 'string' && step.description.length > 0 ? { description: step.description } : {}),
           ...(nextOnSuccess ? { nextOnSuccess } : {}),
-          ...(nextOnError ? { nextOnError } : {}),
           statusText,
           actions,
           inputFrom,
@@ -2166,11 +2125,6 @@ export async function listMetaApps(options: {
         if (step.nextOnSuccess && !stepIdSet.has(step.nextOnSuccess)) {
           throw new Error(
             `${options.protocolId}.apps.${appId}.steps.${step.stepId}.next_on_success references unknown step ${step.nextOnSuccess}.`,
-          );
-        }
-        if (step.nextOnError && !stepIdSet.has(step.nextOnError)) {
-          throw new Error(
-            `${options.protocolId}.apps.${appId}.steps.${step.stepId}.next_on_error references unknown step ${step.nextOnError}.`,
           );
         }
         for (const transition of step.transitions) {
