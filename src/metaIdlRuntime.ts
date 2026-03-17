@@ -69,6 +69,7 @@ type ActionInputSpec = {
   required?: boolean;
   default?: unknown;
   discover_from?: string;
+  read_from?: string;
   ui_editable?: boolean;
   label?: string;
   placeholder?: string;
@@ -420,6 +421,8 @@ export type MetaOperationSummary = {
       default?: unknown;
       discover_from?: string;
       discover_stage?: 'discover' | 'derive' | 'compute' | 'input' | 'unknown';
+      read_from?: string;
+      read_stage?: 'discover' | 'derive' | 'compute' | 'input' | 'unknown';
       ui_editable?: boolean;
       label?: string;
       placeholder?: string;
@@ -519,20 +522,22 @@ export type MetaAppSummary = {
 
 function resolveDiscoverStage(path: string, operation: MaterializedActionSpec): 'discover' | 'derive' | 'compute' | 'input' | 'unknown' {
   const cleaned = path.startsWith('$') ? path.slice(1) : path;
-  const [root] = cleaned.split('.').filter(Boolean);
+  const parts = cleaned.split('.').filter(Boolean);
+  const [root] = parts;
   if (!root) {
     return 'unknown';
   }
+  const candidate = root === 'derived' && parts.length > 1 ? parts[1] : root;
   if (root === 'input') {
     return 'input';
   }
-  if ((operation.discover ?? []).some((step) => step.name === root)) {
+  if ((operation.discover ?? []).some((step) => step.name === candidate)) {
     return 'discover';
   }
-  if ((operation.derive ?? []).some((step) => step.name === root)) {
+  if ((operation.derive ?? []).some((step) => step.name === candidate)) {
     return 'derive';
   }
-  if ((operation.compute ?? []).some((step) => step.name === root)) {
+  if ((operation.compute ?? []).some((step) => step.name === candidate)) {
     return 'compute';
   }
   return 'unknown';
@@ -1102,6 +1107,16 @@ function materializeOperation(operationId: string, operation: ActionSpec, meta: 
   });
   mergeActionFragment(materialized, actionDirectFragment, `operation ${operationId}`);
 
+  for (const [inputName, inputSpec] of Object.entries(materialized.inputs ?? {})) {
+    if (inputSpec.ui_editable === false) {
+      if (typeof inputSpec.read_from !== 'string' || inputSpec.read_from.trim().length === 0) {
+        throw new Error(
+          `Operation ${operationId} input ${inputName}: ui_editable=false requires non-empty read_from.`,
+        );
+      }
+    }
+  }
+
   return materialized;
 }
 
@@ -1577,6 +1592,7 @@ async function prepareMetaOperationInternal(options: {
   };
 
   const derived: Record<string, unknown> = {};
+  scope.derived = derived;
 
   const resolverCtx: ResolverContext = {
     protocol: scope.protocol as ResolverContext['protocol'],
@@ -1596,6 +1612,7 @@ async function prepareMetaOperationInternal(options: {
     const value = await runDiscoverStep(step, resolverCtx);
     derived[step.name] = value;
     scope[step.name] = value;
+    scope.derived = derived;
   }
 
   for (const step of operation.derive ?? []) {
@@ -1606,6 +1623,7 @@ async function prepareMetaOperationInternal(options: {
     const value = await runResolver(step, resolverCtx);
     derived[step.name] = value;
     scope[step.name] = value;
+    scope.derived = derived;
   }
 
   for (const step of operation.compute ?? []) {
@@ -1616,6 +1634,7 @@ async function prepareMetaOperationInternal(options: {
     const value = await runComputeStep(step, resolverCtx);
     derived[step.name] = value;
     scope[step.name] = value;
+    scope.derived = derived;
   }
 
   for (const { key, spec } of discoverableInputs) {
@@ -1784,6 +1803,8 @@ export async function listMetaOperations(options: {
             ...(spec.default !== undefined ? { default: cloneJsonLike(spec.default) } : {}),
             ...(spec.discover_from ? { discover_from: spec.discover_from } : {}),
             ...(spec.discover_from ? { discover_stage: resolveDiscoverStage(spec.discover_from, operation) } : {}),
+            ...(spec.read_from ? { read_from: spec.read_from } : {}),
+            ...(spec.read_from ? { read_stage: resolveDiscoverStage(spec.read_from, operation) } : {}),
             ...(typeof spec.ui_editable === 'boolean' ? { ui_editable: spec.ui_editable } : {}),
             ...(typeof spec.label === 'string' && spec.label.trim().length > 0 ? { label: spec.label.trim() } : {}),
             ...(typeof spec.placeholder === 'string' && spec.placeholder.trim().length > 0
