@@ -127,15 +127,6 @@ type ActionSpec = {
   };
 };
 
-type UserAppStepTransitionSpec = {
-  on: 'success';
-  to: string;
-};
-
-type UserAppStepBlockingSpec = {
-  requires_paths?: string[];
-};
-
 type UserAppActionSpec = {
   id: string;
   kind: 'run' | 'back' | 'reset';
@@ -160,8 +151,7 @@ type UserAppStepSpec = {
   next_on_success?: string;
   status_text: UserAppStatusTextSpec;
   input_from?: Record<string, unknown>;
-  transitions: UserAppStepTransitionSpec[];
-  blocking?: UserAppStepBlockingSpec;
+  requires_paths?: string[];
   actions: UserAppActionSpec[];
   ui?: {
     kind: 'select_from_derived';
@@ -458,13 +448,7 @@ export type MetaAppStepSummary = {
     variant: 'primary' | 'secondary' | 'ghost';
   }>;
   inputFrom: Record<string, unknown>;
-  transitions: Array<{
-    on: 'success';
-    to: string;
-  }>;
-  blocking: {
-    requiresPaths: string[];
-  };
+  requiresPaths: string[];
   ui?: {
     kind: 'select_from_derived';
     source: string;
@@ -1940,63 +1924,23 @@ export async function listMetaApps(options: {
           };
         });
 
-        const transitionsRaw = step.transitions;
-        if (!Array.isArray(transitionsRaw)) {
-          throw new Error(`${options.protocolId}.apps.${appId}.steps[${index}].transitions must be an array.`);
-        }
-        const transitions = transitionsRaw.map((transitionRaw, transitionIndex) => {
-          const transition = asRecord(
-            transitionRaw,
-            `${options.protocolId}.apps.${appId}.steps[${index}].transitions[${transitionIndex}]`,
-          );
-          const on = asString(
-            transition.on,
-            `${options.protocolId}.apps.${appId}.steps[${index}].transitions[${transitionIndex}].on`,
-          );
-          if (on !== 'success') {
-            throw new Error(
-              `${options.protocolId}.apps.${appId}.steps[${index}].transitions[${transitionIndex}].on must be success.`,
-            );
-          }
-          return {
-            on: 'success' as const,
-            to: asString(
-              transition.to,
-              `${options.protocolId}.apps.${appId}.steps[${index}].transitions[${transitionIndex}].to`,
-            ),
-          };
-        });
-        const successTransitions = transitions.filter((transition) => transition.on === 'success');
-        if (successTransitions.length > 1) {
+        if (step.transitions !== undefined) {
           throw new Error(
-            `${options.protocolId}.apps.${appId}.steps[${index}].transitions has multiple success targets. Use one success transition + next_on_success.`,
+            `${options.protocolId}.apps.${appId}.steps[${index}].transitions is not supported. Use next_on_success only.`,
           );
         }
-        if (successTransitions.length === 1) {
-          if (!nextOnSuccess) {
-            throw new Error(
-              `${options.protocolId}.apps.${appId}.steps[${index}] defines success transition but is missing next_on_success.`,
-            );
-          }
-          if (nextOnSuccess !== successTransitions[0]!.to) {
-            throw new Error(
-              `${options.protocolId}.apps.${appId}.steps[${index}] next_on_success must match success transition target ${successTransitions[0]!.to}.`,
-            );
-          }
+        if (step.blocking !== undefined) {
+          throw new Error(
+            `${options.protocolId}.apps.${appId}.steps[${index}].blocking is not supported. Use requires_paths directly on the step.`,
+          );
         }
-
-        const blockingRaw =
-          step.blocking && typeof step.blocking === 'object' && !Array.isArray(step.blocking)
-            ? asRecord(step.blocking, `${options.protocolId}.apps.${appId}.steps[${index}].blocking`)
-            : {};
-        const requiresPaths = Array.isArray(blockingRaw.requires_paths)
-          ? blockingRaw.requires_paths.map((entry, pathIndex) =>
-              asString(
-                entry,
-                `${options.protocolId}.apps.${appId}.steps[${index}].blocking.requires_paths[${pathIndex}]`,
-              ),
-            )
-          : [];
+        const requiresPathsRaw = Array.isArray(step.requires_paths) ? step.requires_paths : [];
+        const requiresPaths = requiresPathsRaw.map((entry, pathIndex) =>
+          asString(
+            entry,
+            `${options.protocolId}.apps.${appId}.steps[${index}].requires_paths[${pathIndex}]`,
+          ),
+        );
 
         const ui =
           step.ui && typeof step.ui === 'object' && !Array.isArray(step.ui)
@@ -2049,10 +1993,7 @@ export async function listMetaApps(options: {
           statusText,
           actions,
           inputFrom,
-          transitions,
-          blocking: {
-            requiresPaths,
-          },
+          requiresPaths,
           ...(ui ? { ui } : {}),
         } as MetaAppStepSummary;
       });
@@ -2073,13 +2014,6 @@ export async function listMetaApps(options: {
           throw new Error(
             `${options.protocolId}.apps.${appId}.steps.${step.stepId}.next_on_success references unknown step ${step.nextOnSuccess}.`,
           );
-        }
-        for (const transition of step.transitions) {
-          if (!stepIdSet.has(transition.to)) {
-            throw new Error(
-              `${options.protocolId}.apps.${appId}.steps.${step.stepId}.transitions references unknown step ${transition.to}.`,
-            );
-          }
         }
       }
 
