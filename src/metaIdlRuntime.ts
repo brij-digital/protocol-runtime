@@ -151,6 +151,7 @@ type UserAppStepSpec = {
   next_on_success?: string;
   status_text: UserAppStatusTextSpec;
   input_from?: Record<string, unknown>;
+  input_mode?: Record<string, 'edit' | 'readonly' | 'hidden'>;
   requires_paths?: string[];
   actions: UserAppActionSpec[];
   ui?: {
@@ -448,6 +449,7 @@ export type MetaAppStepSummary = {
     };
   }>;
   inputFrom: Record<string, unknown>;
+  inputMode: Record<string, 'edit' | 'readonly' | 'hidden'>;
   requiresPaths: string[];
   ui?: {
     kind: 'select_from_derived';
@@ -1870,6 +1872,26 @@ export async function listMetaApps(options: {
           step.input_from && typeof step.input_from === 'object' && !Array.isArray(step.input_from)
             ? (cloneJsonLike(step.input_from) as Record<string, unknown>)
             : {};
+        const inputMode = (() => {
+          if (!step.input_mode) {
+            return {} as Record<string, 'edit' | 'readonly' | 'hidden'>;
+          }
+          const raw = asRecord(step.input_mode, `${options.protocolId}.apps.${appId}.steps[${index}].input_mode`);
+          const out: Record<string, 'edit' | 'readonly' | 'hidden'> = {};
+          for (const [inputName, modeRaw] of Object.entries(raw)) {
+            const mode = asString(
+              modeRaw,
+              `${options.protocolId}.apps.${appId}.steps[${index}].input_mode.${inputName}`,
+            );
+            if (mode !== 'edit' && mode !== 'readonly' && mode !== 'hidden') {
+              throw new Error(
+                `${options.protocolId}.apps.${appId}.steps[${index}].input_mode.${inputName} must be edit|readonly|hidden.`,
+              );
+            }
+            out[inputName] = mode;
+          }
+          return out;
+        })();
         if (!Array.isArray(step.actions) || step.actions.length === 0) {
           throw new Error(`${options.protocolId}.apps.${appId}.steps[${index}].actions must be a non-empty array.`);
         }
@@ -1993,6 +2015,7 @@ export async function listMetaApps(options: {
           statusText,
           actions,
           inputFrom,
+          inputMode,
           requiresPaths,
           ...(ui ? { ui } : {}),
         } as MetaAppStepSummary;
