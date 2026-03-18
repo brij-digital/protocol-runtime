@@ -69,7 +69,7 @@ type ActionInputSpec = {
   required?: boolean;
   default?: unknown;
   read_from?: string;
-  ui_editable?: boolean;
+  ui_mode?: 'edit' | 'readonly' | 'hidden';
   label?: string;
   placeholder?: string;
   help?: string;
@@ -394,7 +394,7 @@ export type MetaOperationSummary = {
       default?: unknown;
       read_from?: string;
       read_stage?: 'discover' | 'derive' | 'compute' | 'input' | 'unknown';
-      ui_editable?: boolean;
+      ui_mode?: 'edit' | 'readonly' | 'hidden';
       label?: string;
       placeholder?: string;
       help?: string;
@@ -1066,6 +1066,13 @@ function materializeOperation(operationId: string, operation: ActionSpec, meta: 
         );
       }
     }
+    if (inputSpec.ui_mode !== undefined) {
+      if (inputSpec.ui_mode !== 'edit' && inputSpec.ui_mode !== 'readonly' && inputSpec.ui_mode !== 'hidden') {
+        throw new Error(
+          `Operation ${operationId} input ${inputName}: ui_mode must be one of edit|readonly|hidden when provided.`,
+        );
+      }
+    }
   }
 
   return materialized;
@@ -1731,7 +1738,7 @@ export async function listMetaOperations(options: {
             ...(spec.default !== undefined ? { default: cloneJsonLike(spec.default) } : {}),
             ...(spec.read_from ? { read_from: spec.read_from } : {}),
             ...(spec.read_from ? { read_stage: resolveDiscoverStage(spec.read_from, operation) } : {}),
-            ...(typeof spec.ui_editable === 'boolean' ? { ui_editable: spec.ui_editable } : {}),
+            ...(typeof spec.ui_mode === 'string' ? { ui_mode: spec.ui_mode } : {}),
             ...(typeof spec.label === 'string' && spec.label.trim().length > 0 ? { label: spec.label.trim() } : {}),
             ...(typeof spec.placeholder === 'string' && spec.placeholder.trim().length > 0
               ? { placeholder: spec.placeholder.trim() }
