@@ -765,11 +765,6 @@ export class AppPackViewReadService {
     `);
 
     await this.pool.query(`
-      ALTER TABLE ${ACCOUNT_CACHE_TABLE}
-      ALTER COLUMN rent_epoch TYPE TEXT USING rent_epoch::TEXT;
-    `);
-
-    await this.pool.query(`
       CREATE INDEX IF NOT EXISTS idx_cached_program_accounts_owner_slot_pubkey
       ON ${ACCOUNT_CACHE_TABLE} (owner_program_id, slot DESC, pubkey);
     `);
