@@ -125,6 +125,69 @@ const META = {
   },
 };
 
+const META_V2 = {
+  schema: 'meta-idl.v0.6',
+  protocolId: 'orca-whirlpool-mainnet',
+  operations: {
+    list_pools: {
+      inputs: {
+        token_in_mint: { type: 'pubkey', required: true },
+        token_out_mint: { type: 'pubkey', required: true },
+      },
+      read_output: {
+        type: 'array',
+        source: '$derived.items',
+        max_items: 20,
+      },
+      view: {
+        kind: 'search',
+        source: 'indexed',
+        entity_type: 'whirlpool_pool',
+        bootstrap: {
+          kind: 'scan_accounts',
+          source: 'rpc.getProgramAccounts',
+          program_id: PROGRAM_ID,
+          account_type: 'Whirlpool',
+          filters: [],
+        },
+        query: {
+          indexed_filters: {
+            any: [
+              {
+                all: [
+                  { field: 'memcmp.8', op: '=', value: '$input.token_in_mint' },
+                  { field: 'memcmp.40', op: '=', value: '$input.token_out_mint' },
+                ],
+              },
+              {
+                all: [
+                  { field: 'memcmp.8', op: '=', value: '$input.token_out_mint' },
+                  { field: 'memcmp.40', op: '=', value: '$input.token_in_mint' },
+                ],
+              },
+            ],
+          },
+          filters: {
+            all: [{ field: 'decoded.liquidity', op: '>', value: '0' }],
+          },
+          decode: {
+            account_type: 'Whirlpool',
+          },
+          sort: [{ field: 'decoded.liquidity', dir: 'desc', mode: 'indexed_then_live_refine', candidate_limit: 20 }],
+          limit: 20,
+          select: {
+            whirlpool: '$account.pubkey',
+            tokenMintA: '$decoded.token_mint_a',
+            tokenMintB: '$decoded.token_mint_b',
+            tickSpacing: '$decoded.tick_spacing',
+            liquidity: '$decoded.liquidity',
+          },
+        },
+      },
+    },
+  },
+};
+
 async function writeTempJson(prefix, value) {
   const dir = path.join(os.tmpdir(), `apppack-runtime-test-${randomUUID()}`);
   await fs.mkdir(dir, { recursive: true });
@@ -212,6 +275,81 @@ test('runRead queries cached_program_accounts via binary memcmp and returns sort
   const serializedParams = JSON.stringify(memcmpQuery.params);
   assert.ok(serializedParams.includes(tokenInHex));
   assert.ok(serializedParams.includes(tokenOutHex));
+
+  await service.close();
+});
+
+test('runRead supports view v0.2 search shape with indexed_filters and decoded filters', async () => {
+  const idlPath = await writeTempJson('idl-v2', IDL);
+  const metaPath = await writeTempJson('meta-v2', META_V2);
+  const coder = new BorshAccountsCoder(IDL);
+
+  const dataA = await coder.encode('Whirlpool', {
+    token_mint_a: new PublicKey(MINT_USDC),
+    token_mint_b: new PublicKey(MINT_SOL),
+    tick_spacing: 4,
+    liquidity: new BN('1000000'),
+  });
+  const dataB = await coder.encode('Whirlpool', {
+    token_mint_a: new PublicKey(MINT_SOL),
+    token_mint_b: new PublicKey(MINT_USDC),
+    tick_spacing: 16,
+    liquidity: new BN('2000000'),
+  });
+
+  const capturedQueries = [];
+  const pool = {
+    async query(sql, params) {
+      capturedQueries.push({ sql: String(sql), params: params ?? [] });
+      if (String(sql).includes('FROM cached_program_accounts')) {
+        return {
+          rows: [
+            {
+              pubkey: 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE',
+              slot: '202532154',
+              data_bytes: Buffer.from(dataA),
+            },
+            {
+              pubkey: '2sZ7dw8Nfqn8mQ9QGp2PzFpvx9TLtCrzkx5hDfSE9iJY',
+              slot: '202532160',
+              data_bytes: Buffer.from(dataB),
+            },
+          ],
+          rowCount: 2,
+        };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    async end() {},
+  };
+
+  const service = new AppPackViewReadService({
+    connection: new Connection('http://127.0.0.1:8899', 'confirmed'),
+    databaseUrl: null,
+    poolOverride: pool,
+    cacheTtlMs: 1000,
+    metaPath,
+    idlPath,
+    programId: PROGRAM_ID,
+    operationId: 'list_pools',
+  });
+
+  const result = await service.runRead({
+    input: {
+      token_in_mint: MINT_USDC,
+      token_out_mint: MINT_SOL,
+    },
+    limit: 20,
+  });
+
+  assert.equal(result.items.length, 2);
+  assert.equal(result.items[0].liquidity, '2000000');
+  const memcmpQuery = capturedQueries.find((entry) => entry.sql.includes('FROM cached_program_accounts'));
+  assert.ok(memcmpQuery, 'expected query against cached_program_accounts');
+  assert.ok(memcmpQuery.sql.includes(' OR '));
+  const serializedParams = JSON.stringify(memcmpQuery.params);
+  assert.ok(serializedParams.includes(new PublicKey(MINT_USDC).toBuffer().toString('hex')));
+  assert.ok(serializedParams.includes(new PublicKey(MINT_SOL).toBuffer().toString('hex')));
 
   await service.close();
 });

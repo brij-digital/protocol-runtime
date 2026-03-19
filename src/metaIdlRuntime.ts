@@ -95,12 +95,7 @@ type ReadOutputSpec = {
   item_label_fields?: string[];
 };
 
-type ViewSpec = {
-  bootstrap: Record<string, unknown>;
-  stream?: Record<string, unknown>;
-  mapping: Record<string, unknown>;
-  entity_keys: string[];
-};
+type ViewSpec = Record<string, unknown>;
 
 type ActionSpec = {
   label?: string;

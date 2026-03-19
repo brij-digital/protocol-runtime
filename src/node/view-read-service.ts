@@ -20,7 +20,8 @@ type DiscoverSortClause = {
 type DiscoverMemcmpClause = {
   memcmp: {
     offset: number;
-    bytesFrom: string;
+    bytes?: string;
+    bytesFrom?: string;
   };
 };
 
@@ -56,12 +57,90 @@ type ReadOutputDef = {
   max_items?: number;
 };
 
+type LegacyViewDef = {
+  entity_keys?: string[];
+};
+
+type ViewFilterCondition = {
+  field: string;
+  op: '>' | '>=' | '<' | '<=' | '=' | '!=' | 'in';
+  value: unknown;
+};
+
+type ViewFilterGroup =
+  | {
+      all: Array<ViewFilterCondition | ViewFilterGroup>;
+    }
+  | {
+      any: Array<ViewFilterCondition | ViewFilterGroup>;
+    };
+
+type SearchSortClause = {
+  field: string;
+  dir: SortDirection;
+  mode?: 'indexed' | 'live' | 'indexed_then_live_refine';
+  candidate_limit?: number;
+};
+
+type SearchHydrateSpec = {
+  mode: 'none' | 'accounts';
+  candidate_limit?: number;
+  fields?: string[];
+};
+
+type SearchDecodeSpec = {
+  account_type: string;
+};
+
+type SearchBootstrapSpec = {
+  kind: 'scan_accounts';
+  source: 'rpc.getProgramAccounts';
+  program_id: string;
+  account_type: string;
+  filters?: DiscoverMemcmpClause[];
+};
+
+type SearchQuerySpec = {
+  indexed_filters?: ViewFilterGroup;
+  filters?: ViewFilterGroup;
+  hydrate?: SearchHydrateSpec;
+  decode?: SearchDecodeSpec;
+  sort?: SearchSortClause[];
+  limit?: number;
+  select: Record<string, unknown>;
+};
+
+type SearchViewDef = {
+  kind: 'search';
+  source: 'rpc' | 'indexed' | 'hybrid';
+  entity_type: string;
+  bootstrap: SearchBootstrapSpec;
+  refresh?: Record<string, unknown>;
+  query: SearchQuerySpec;
+  title?: string;
+  description?: string;
+};
+
+type AccountViewDef = {
+  kind: 'account';
+  source: 'rpc' | 'indexed' | 'hybrid';
+  entity_type?: string;
+  target: {
+    address: unknown;
+    account_type: string;
+  };
+  refresh?: Record<string, unknown>;
+  select: Record<string, unknown>;
+  title?: string;
+  description?: string;
+};
+
+type ViewDef = LegacyViewDef | SearchViewDef | AccountViewDef;
+
 type OperationDef = {
   inputs?: Record<string, OperationInputDef>;
   use?: TemplateUse[];
-  view?: {
-    entity_keys?: string[];
-  };
+  view?: ViewDef;
   read_output?: ReadOutputDef;
 };
 
@@ -139,23 +218,24 @@ type DecodedAccountContext = {
 type CompiledOperation = {
   protocolId: string;
   namespace: string;
-  discoverStep: DiscoverQueryStep;
+  mode: 'search' | 'account';
   defaultLimit: number;
   outputMaxItems: number;
-  outputSource: string;
   entityKeys: string[];
-  tokenMintFieldA: string | null;
-  tokenMintFieldB: string | null;
-  liquidityField: string | null;
   pairParamA: string | null;
   pairParamB: string | null;
-  paramFieldMap: Record<string, string>;
   programId: PublicKey;
   accountType: string;
   accountSize: number;
   discriminatorFilter: GetProgramAccountsFilter | null;
   paramMap: Record<string, string>;
   operationInputDefs: Record<string, OperationInputDef>;
+  staticMemcmpFilters: DiscoverMemcmpClause[];
+  indexedFilterGroups: DiscoverMemcmpClause[][];
+  decodedFilterSpec: ViewFilterGroup | null;
+  sortClauses: SearchSortClause[];
+  select: Record<string, unknown>;
+  targetAddress?: unknown;
 };
 
 const LEGACY_ORCA_POOLS_TABLE = 'orca_pools';
@@ -334,10 +414,7 @@ function pickFieldBySelectValue(select: Record<string, unknown>, valueRef: strin
   return null;
 }
 
-function inferPairParams(
-  step: DiscoverQueryStep,
-  operationInputDefs: Record<string, OperationInputDef>,
-): [string | null, string | null] {
+function inferPairParamsFromInputs(operationInputDefs: Record<string, OperationInputDef>): [string | null, string | null] {
   const preferredPairs: Array<[string, string]> = [
     ['token_in_mint', 'token_out_mint'],
     ['base_mint', 'quote_mint'],
@@ -350,16 +427,30 @@ function inferPairParams(
     }
   }
 
+  return [null, null];
+}
+
+function inferPairParams(
+  step: DiscoverQueryStep,
+  operationInputDefs: Record<string, OperationInputDef>,
+): [string | null, string | null] {
+  const direct = inferPairParamsFromInputs(operationInputDefs);
+  if (direct[0] && direct[1]) {
+    return direct;
+  }
   // Backward-compatible fallback for legacy specs that still use or_filters.
-  const params = new Set<string>();
-  const groups = step.or_filters ?? [];
-  for (const group of groups) {
-    for (const condition of group) {
-      const ref = condition.memcmp.bytesFrom;
-      if (ref.startsWith('$param.')) {
-        params.add(ref.slice('$param.'.length));
+    const params = new Set<string>();
+    const groups = step.or_filters ?? [];
+    for (const group of groups) {
+      for (const condition of group) {
+        const ref = condition.memcmp.bytesFrom;
+        if (typeof ref !== 'string') {
+          continue;
+        }
+        if (ref.startsWith('$param.')) {
+          params.add(ref.slice('$param.'.length));
+        }
       }
-    }
   }
   const values = Array.from(params);
   if (values.length >= 2) {
@@ -369,36 +460,111 @@ function inferPairParams(
   return [null, null];
 }
 
-function inferParamFieldMap(step: DiscoverQueryStep): Record<string, string> {
-  const map: Record<string, string> = {};
-  const findSelectFieldForDecodedPath = (decodedPath: string): string | null => {
-    const expression = `$decoded.${decodedPath}`;
-    return pickFieldBySelectValue(step.select, expression);
-  };
-
-  for (const clause of step.where ?? []) {
-    if (clause.op !== '=') {
-      continue;
-    }
-    if (typeof clause.value !== 'string' || !clause.value.startsWith('$param.')) {
-      continue;
-    }
-    if (!clause.path.startsWith('decoded.')) {
-      continue;
-    }
-    const paramName = clause.value.slice('$param.'.length);
-    const decodedPath = clause.path.slice('decoded.'.length);
-    if (!paramName || !decodedPath) {
-      continue;
-    }
-    const field = findSelectFieldForDecodedPath(decodedPath);
-    if (!field) {
-      continue;
-    }
-    map[paramName] = field;
+function inferPairParamsFromView(
+  operationInputDefs: Record<string, OperationInputDef>,
+  filterSpec: ViewFilterGroup | null | undefined,
+): [string | null, string | null] {
+  const direct = inferPairParamsFromInputs(operationInputDefs);
+  if (direct[0] && direct[1]) {
+    return direct;
   }
 
-  return map;
+  const params = new Set<string>();
+  const visit = (node: ViewFilterGroup | ViewFilterCondition | undefined | null) => {
+    if (!node || typeof node !== 'object') {
+      return;
+    }
+    if ('field' in node) {
+      if (typeof node.value === 'string' && node.value.startsWith('$input.')) {
+        params.add(node.value.slice('$input.'.length));
+      }
+      return;
+    }
+    if ('all' in node) {
+      for (const item of node.all) visit(item);
+      return;
+    }
+    if ('any' in node) {
+      for (const item of node.any) visit(item);
+    }
+  };
+  visit(filterSpec ?? null);
+  const values = Array.from(params);
+  if (values.length >= 2) {
+    return [values[0] ?? null, values[1] ?? null];
+  }
+  return [null, null];
+}
+
+function isSearchViewDef(view: ViewDef | undefined): view is SearchViewDef {
+  return !!view && typeof view === 'object' && 'kind' in view && view.kind === 'search';
+}
+
+function isAccountViewDef(view: ViewDef | undefined): view is AccountViewDef {
+  return !!view && typeof view === 'object' && 'kind' in view && view.kind === 'account';
+}
+
+function legacyWhereToFilterGroup(whereClauses: DiscoverWhereClause[] | undefined): ViewFilterGroup | null {
+  if (!whereClauses || whereClauses.length === 0) {
+    return null;
+  }
+  return {
+    all: whereClauses.map((clause) => ({
+      field: clause.path,
+      op: clause.op,
+      value: clause.value,
+    })),
+  };
+}
+
+function normalizeIndexedFilterGroups(spec: ViewFilterGroup | undefined | null): DiscoverMemcmpClause[][] {
+  if (!spec) {
+    return [];
+  }
+
+  const toClause = (value: ViewFilterCondition | ViewFilterGroup): DiscoverMemcmpClause | null => {
+    if (!value || typeof value !== 'object' || !('field' in value)) {
+      return null;
+    }
+    if (!value.field.startsWith('memcmp.')) {
+      return null;
+    }
+    if (value.op !== '=') {
+      return null;
+    }
+    const offset = Number.parseInt(value.field.slice('memcmp.'.length), 10);
+    if (!Number.isFinite(offset) || offset < 0) {
+      return null;
+    }
+    if (typeof value.value === 'string') {
+      return { memcmp: { offset, bytesFrom: value.value } };
+    }
+    return null;
+  };
+
+  if ('all' in spec) {
+    const clauses = spec.all.map(toClause).filter((item): item is DiscoverMemcmpClause => !!item);
+    return clauses.length > 0 ? [clauses] : [];
+  }
+
+  const groups: DiscoverMemcmpClause[][] = [];
+  for (const item of spec.any) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    if ('all' in item) {
+      const clauses = item.all.map(toClause).filter((entry): entry is DiscoverMemcmpClause => !!entry);
+      if (clauses.length > 0) {
+        groups.push(clauses);
+      }
+      continue;
+    }
+    const clause = toClause(item);
+    if (clause) {
+      groups.push([clause]);
+    }
+  }
+  return groups;
 }
 
 function compileOperation(meta: MetaPack, coder: BorshAccountsCoder, options: AppPackViewReadServiceOptions): CompiledOperation {
@@ -406,6 +572,69 @@ function compileOperation(meta: MetaPack, coder: BorshAccountsCoder, options: Ap
   if (!operation) {
     throw new Error(`Operation ${options.operationId} not found in meta IDL.`);
   }
+  const operationInputDefs = operation.inputs ?? {};
+
+  if (isSearchViewDef(operation.view)) {
+    const view = operation.view;
+    if (view.bootstrap.kind !== 'scan_accounts' || view.bootstrap.source !== 'rpc.getProgramAccounts') {
+      throw new Error(`Operation ${options.operationId} requires unsupported search bootstrap source.`);
+    }
+    const accountType = view.query.decode?.account_type ?? view.bootstrap.account_type;
+    const [pairParamA, pairParamB] = inferPairParamsFromView(operationInputDefs, view.query.filters);
+    return {
+      protocolId: meta.protocolId,
+      namespace: `${meta.protocolId}.${options.operationId}`,
+      mode: 'search',
+      defaultLimit: view.query.limit ?? operation.read_output?.max_items ?? 20,
+      outputMaxItems: operation.read_output?.max_items ?? view.query.limit ?? 20,
+      entityKeys: [],
+      pairParamA,
+      pairParamB,
+      programId: parsePublicKey(view.bootstrap.program_id, 'bootstrap.program_id'),
+      accountType,
+      accountSize: coder.size(accountType),
+      discriminatorFilter: {
+        memcmp: coder.memcmp(accountType),
+      },
+      paramMap: {},
+      operationInputDefs,
+      staticMemcmpFilters: view.bootstrap.filters ?? [],
+      indexedFilterGroups: normalizeIndexedFilterGroups(view.query.indexed_filters),
+      decodedFilterSpec: view.query.filters ?? null,
+      sortClauses: view.query.sort ?? [],
+      select: view.query.select,
+    };
+  }
+
+  if (isAccountViewDef(operation.view)) {
+    const view = operation.view;
+    const accountType = view.target.account_type;
+    return {
+      protocolId: meta.protocolId,
+      namespace: `${meta.protocolId}.${options.operationId}`,
+      mode: 'account',
+      defaultLimit: 1,
+      outputMaxItems: 1,
+      entityKeys: [],
+      pairParamA: null,
+      pairParamB: null,
+      programId: parsePublicKey(options.programId, 'programId'),
+      accountType,
+      accountSize: coder.size(accountType),
+      discriminatorFilter: {
+        memcmp: coder.memcmp(accountType),
+      },
+      paramMap: {},
+      operationInputDefs,
+      staticMemcmpFilters: [],
+      indexedFilterGroups: [],
+      decodedFilterSpec: null,
+      sortClauses: [],
+      select: view.select,
+      targetAddress: view.target.address,
+    };
+  }
+
   const use = operation.use?.[0];
   if (!use) {
     throw new Error(`Operation ${options.operationId} has no template use.`);
@@ -424,29 +653,18 @@ function compileOperation(meta: MetaPack, coder: BorshAccountsCoder, options: Ap
   }
 
   const outputMaxItems = operation.read_output?.max_items ?? discoverStep.limit ?? 20;
-  const outputSource = operation.read_output?.source ?? `$derived.${discoverStep.name}`;
-  const entityKeys = operation.view?.entity_keys ?? ['whirlpool'];
-  const operationInputDefs = operation.inputs ?? {};
-  const tokenMintFieldA = pickFieldBySelectValue(discoverStep.select, '$decoded.token_mint_a');
-  const tokenMintFieldB = pickFieldBySelectValue(discoverStep.select, '$decoded.token_mint_b');
-  const liquidityField = pickFieldBySelectValue(discoverStep.select, '$decoded.liquidity');
+  const entityKeys = (operation.view as LegacyViewDef | undefined)?.entity_keys ?? ['whirlpool'];
   const [pairParamA, pairParamB] = inferPairParams(discoverStep, operationInputDefs);
-  const paramFieldMap = inferParamFieldMap(discoverStep);
 
   return {
     protocolId: meta.protocolId,
     namespace: `${meta.protocolId}.${options.operationId}`,
-    discoverStep,
+    mode: 'search',
     defaultLimit: discoverStep.limit ?? 20,
     outputMaxItems,
-    outputSource,
     entityKeys,
-    tokenMintFieldA,
-    tokenMintFieldB,
-    liquidityField,
     pairParamA,
     pairParamB,
-    paramFieldMap,
     programId: parsePublicKey(options.programId, 'programId'),
     accountType: discoverStep.account_type,
     accountSize: coder.size(discoverStep.account_type),
@@ -458,6 +676,14 @@ function compileOperation(meta: MetaPack, coder: BorshAccountsCoder, options: Ap
           },
     paramMap: use.with ?? {},
     operationInputDefs,
+    staticMemcmpFilters: [],
+    indexedFilterGroups: discoverStep.or_filters ?? [],
+    decodedFilterSpec: legacyWhereToFilterGroup(discoverStep.where),
+    sortClauses: (discoverStep.sort ?? []).map((clause) => ({
+      field: clause.path,
+      dir: clause.dir,
+    })),
+    select: discoverStep.select,
   };
 }
 
@@ -521,19 +747,6 @@ export class AppPackViewReadService {
       WHERE namespace = '${this.compiled.namespace}';
     `);
 
-    if (this.compiled.tokenMintFieldA && this.compiled.tokenMintFieldB && this.compiled.liquidityField) {
-      const pairIndexName = sanitizeIndexName(`idx_${this.compiled.namespace}_pair_liquidity`);
-      await this.pool.query(`
-        CREATE INDEX IF NOT EXISTS ${pairIndexName}
-        ON view_entities (
-          (payload->>'${this.compiled.tokenMintFieldA}'),
-          (payload->>'${this.compiled.tokenMintFieldB}'),
-          ((payload->>'${this.compiled.liquidityField}')::numeric) DESC
-        )
-        WHERE namespace = '${this.compiled.namespace}';
-      `);
-    }
-
     await this.migrateLegacyOrcaTablesIfNeeded();
   }
 
@@ -552,6 +765,9 @@ export class AppPackViewReadService {
   async runRead(options: ListPoolsOptions): Promise<ReadResult> {
     const resolvedInput = this.resolveOperationInput(options.input);
     const resolvedParams = this.resolveTemplateParams(resolvedInput);
+    if (this.compiled.mode === 'account') {
+      return this.runAccountRead(resolvedParams);
+    }
     const effectiveLimit = Math.max(1, Math.min(options.limit, this.compiled.outputMaxItems));
     const cacheKey = this.makeCacheKey(resolvedInput, effectiveLimit);
     const now = Date.now();
@@ -586,12 +802,15 @@ export class AppPackViewReadService {
     if (!this.pool) {
       return null;
     }
+    if (this.compiled.mode !== 'search') {
+      return null;
+    }
 
     const accounts = await this.connection.getProgramAccounts(this.compiled.programId, {
-      commitment: this.compiled.discoverStep.commitment ?? 'confirmed',
+      commitment: 'confirmed',
       filters: [{ dataSize: this.compiled.accountSize }],
     });
-    const slot = await this.connection.getSlot(this.compiled.discoverStep.commitment ?? 'confirmed');
+    const slot = await this.connection.getSlot('confirmed');
 
     const records: Array<{ entityId: string; payload: Record<string, unknown> }> = [];
     for (const account of accounts) {
@@ -615,6 +834,15 @@ export class AppPackViewReadService {
   async syncByAccountAddresses(addresses: string[], slot: number): Promise<IncrementalSyncResult | null> {
     if (!this.pool) {
       return null;
+    }
+    if (this.compiled.mode !== 'search') {
+      return {
+        inputAccounts: addresses.length,
+        fetchedAccounts: 0,
+        decodedAccounts: 0,
+        upserted: 0,
+        slot,
+      };
     }
 
     const uniqueAddresses = new Set<string>();
@@ -641,7 +869,7 @@ export class AppPackViewReadService {
 
     for (const group of chunk(list, 100)) {
       const pubkeys = group.map((value) => new PublicKey(value));
-      const infos = await this.connection.getMultipleAccountsInfo(pubkeys, this.compiled.discoverStep.commitment ?? 'confirmed');
+      const infos = await this.connection.getMultipleAccountsInfo(pubkeys, 'confirmed');
       for (let i = 0; i < infos.length; i += 1) {
         const info = infos[i];
         if (!info) {
@@ -790,8 +1018,54 @@ export class AppPackViewReadService {
     return params;
   }
 
-  private resolveMemcmpBytes(bytesFrom: string, params: Record<string, unknown>): Buffer {
-    const resolved = resolveReference(bytesFrom, { param: params });
+  private async runAccountRead(params: Record<string, unknown>): Promise<ReadResult> {
+    const targetAddress = resolveReference(this.compiled.targetAddress, { input: params, param: params });
+    if (typeof targetAddress !== 'string' || targetAddress.length === 0) {
+      throw new Error(`Target address could not be resolved for ${this.compiled.namespace}.`);
+    }
+    const pubkey = parsePublicKey(targetAddress, 'target.address').toBase58();
+
+    if (this.pool) {
+      const dbResult = await this.fetchAccountByPubkey(pubkey, params);
+      if (dbResult) {
+        return dbResult;
+      }
+    }
+
+    const info = await this.connection.getAccountInfo(new PublicKey(pubkey), 'confirmed');
+    if (!info) {
+      return {
+        items: [],
+        source: 'db',
+        slot: 0,
+        generatedAtMs: Date.now(),
+      };
+    }
+    const selected = this.decodeAndSelect(pubkey, Buffer.from(info.data), params);
+    return {
+      items: selected ? [selected] : [],
+      source: 'db',
+      slot: 0,
+      generatedAtMs: Date.now(),
+    };
+  }
+
+  private resolveMemcmpBytes(clause: DiscoverMemcmpClause, params: Record<string, unknown>): Buffer {
+    const bytesFrom = clause.memcmp.bytesFrom;
+    if (typeof clause.memcmp.bytes === 'string' && clause.memcmp.bytes.length > 0) {
+      const literal = clause.memcmp.bytes;
+      if (/^[0-9a-fA-F]+$/.test(literal) && literal.length % 2 === 0) {
+        return Buffer.from(literal, 'hex');
+      }
+      if (/^[1-9A-HJ-NP-Za-km-z]+$/.test(literal)) {
+        return decodeBase58(literal);
+      }
+      return Buffer.from(literal, 'utf8');
+    }
+    if (typeof bytesFrom !== 'string' || bytesFrom.length === 0) {
+      throw new Error('memcmp clause must include bytes or bytesFrom');
+    }
+    const resolved = resolveReference(bytesFrom, { param: params, input: params });
     if (typeof resolved !== 'string' || resolved.length === 0) {
       throw new Error(`Invalid memcmp bytesFrom value for ${bytesFrom}`);
     }
@@ -809,8 +1083,47 @@ export class AppPackViewReadService {
     }
   }
 
-  private buildOrFiltersSql(params: Record<string, unknown>, paramStartIndex: number): { sql: string; values: unknown[] } {
-    const groups = this.compiled.discoverStep.or_filters ?? [];
+  private buildMemcmpAndSql(
+    clauses: DiscoverMemcmpClause[],
+    params: Record<string, unknown>,
+    paramStartIndex: number,
+  ): { sql: string; values: unknown[] } {
+    if (clauses.length === 0) {
+      return { sql: '', values: [] };
+    }
+
+    const values: unknown[] = [];
+    const andSql: string[] = [];
+    for (const clause of clauses) {
+      const cmp = clause?.memcmp;
+      if (!cmp) {
+        continue;
+      }
+      const bytes = this.resolveMemcmpBytes(clause, params);
+      const offset = Number(cmp.offset);
+      if (!Number.isFinite(offset) || offset < 0) {
+        throw new Error(`Invalid memcmp offset: ${String(cmp.offset)}`);
+      }
+      const pOffset = paramStartIndex + values.length + 1;
+      const pLen = paramStartIndex + values.length + 2;
+      const pHex = paramStartIndex + values.length + 3;
+      andSql.push(`substring(data_bytes from $${pOffset} for $${pLen}) = decode($${pHex}, 'hex')`);
+      values.push(offset + 1, bytes.length, bytes.toString('hex'));
+    }
+    if (andSql.length === 0) {
+      return { sql: '', values: [] };
+    }
+    return {
+      sql: ` AND ${andSql.join(' AND ')}`,
+      values,
+    };
+  }
+
+  private buildMemcmpGroupSql(
+    groups: DiscoverMemcmpClause[][],
+    params: Record<string, unknown>,
+    paramStartIndex: number,
+  ): { sql: string; values: unknown[] } {
     if (groups.length === 0) {
       return { sql: '', values: [] };
     }
@@ -821,26 +1134,12 @@ export class AppPackViewReadService {
       if (!Array.isArray(group) || group.length === 0) {
         continue;
       }
-      const andSql: string[] = [];
-      for (const clause of group) {
-        const cmp = clause?.memcmp;
-        if (!cmp) {
-          continue;
-        }
-        const bytes = this.resolveMemcmpBytes(cmp.bytesFrom, params);
-        const offset = Number(cmp.offset);
-        if (!Number.isFinite(offset) || offset < 0) {
-          throw new Error(`Invalid memcmp offset: ${String(cmp.offset)}`);
-        }
-        const pOffset = paramStartIndex + values.length + 1;
-        const pLen = paramStartIndex + values.length + 2;
-        const pHex = paramStartIndex + values.length + 3;
-        andSql.push(`substring(data_bytes from $${pOffset} for $${pLen}) = decode($${pHex}, 'hex')`);
-        values.push(offset + 1, bytes.length, bytes.toString('hex'));
+      const built = this.buildMemcmpAndSql(group, params, paramStartIndex + values.length);
+      if (!built.sql) {
+        continue;
       }
-      if (andSql.length > 0) {
-        groupSql.push(`(${andSql.join(' AND ')})`);
-      }
+      values.push(...built.values);
+      groupSql.push(`(${built.sql.trim().replace(/^AND\s+/u, '')})`);
     }
     if (groupSql.length === 0) {
       return { sql: '', values: [] };
@@ -875,9 +1174,13 @@ export class AppPackViewReadService {
       queryParams.push((disc.offset ?? 0) + 1, discBytes.length, discBytes.toString('hex'));
     }
 
-    const filters = this.buildOrFiltersSql(params, queryParams.length);
-    sql += filters.sql;
-    queryParams.push(...filters.values);
+    const staticFilters = this.buildMemcmpAndSql(this.compiled.staticMemcmpFilters, params, queryParams.length);
+    sql += staticFilters.sql;
+    queryParams.push(...staticFilters.values);
+
+    const indexedFilters = this.buildMemcmpGroupSql(this.compiled.indexedFilterGroups, params, queryParams.length);
+    sql += indexedFilters.sql;
+    queryParams.push(...indexedFilters.values);
     sql += '\nORDER BY slot DESC, pubkey ASC';
 
     const result = await this.pool.query<{ pubkey: string; slot: string; data_bytes: unknown }>(sql, queryParams);
@@ -886,7 +1189,6 @@ export class AppPackViewReadService {
     }
 
     const rows: DecodedAccountContext[] = [];
-    const whereClauses = this.compiled.discoverStep.where ?? [];
     for (const record of result.rows) {
       const accountData = toBufferSafe(record.data_bytes);
       if (!accountData) {
@@ -906,7 +1208,7 @@ export class AppPackViewReadService {
           programId: this.compiled.programId.toBase58(),
         },
       };
-      if (!this.matchesWhere(whereClauses, row, params)) {
+      if (!this.matchesFilterSpec(this.compiled.decodedFilterSpec, row, params)) {
         continue;
       }
       rows.push(row);
@@ -916,7 +1218,7 @@ export class AppPackViewReadService {
       return null;
     }
 
-    this.sortRows(rows, this.compiled.discoverStep.sort ?? []);
+    this.sortRows(rows, this.compiled.sortClauses);
     const limitedRows = rows.slice(0, limit);
 
     const items: Record<string, unknown>[] = [];
@@ -933,7 +1235,7 @@ export class AppPackViewReadService {
       }
     }
     for (const row of limitedRows) {
-      items.push(this.mapSelect(this.compiled.discoverStep.select, row));
+      items.push(this.mapSelect(this.compiled.select, row));
       const rowSlot = slotByPubkey.get(row.account.pubkey) ?? 0;
       if (rowSlot > maxSlot) {
         maxSlot = rowSlot;
@@ -948,6 +1250,41 @@ export class AppPackViewReadService {
       items,
       source: 'db',
       slot: maxSlot,
+      generatedAtMs: Date.now(),
+    };
+  }
+
+  private async fetchAccountByPubkey(pubkey: string, params: Record<string, unknown>): Promise<ReadResult | null> {
+    if (!this.pool) {
+      return null;
+    }
+    const result = await this.pool.query<{ pubkey: string; slot: string; data_bytes: unknown }>(
+      `
+        SELECT pubkey, slot::text AS slot, data_bytes
+        FROM ${ACCOUNT_CACHE_TABLE}
+        WHERE owner_program_id = $1
+          AND pubkey = $2
+          AND data_len = $3
+        LIMIT 1
+      `,
+      [this.compiled.programId.toBase58(), pubkey, this.compiled.accountSize],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+    const accountData = toBufferSafe(row.data_bytes);
+    if (!accountData) {
+      return null;
+    }
+    const selected = this.decodeAndSelect(pubkey, accountData, params);
+    if (!selected) {
+      return null;
+    }
+    return {
+      items: [selected],
+      source: 'db',
+      slot: Number.parseInt(row.slot, 10) || 0,
       generatedAtMs: Date.now(),
     };
   }
@@ -971,35 +1308,41 @@ export class AppPackViewReadService {
         programId: this.compiled.programId.toBase58(),
       },
     };
-    if (!this.matchesWhere(this.compiled.discoverStep.where ?? [], row, params)) {
+    if (!this.matchesFilterSpec(this.compiled.decodedFilterSpec, row, params)) {
       return null;
     }
-    return this.mapSelect(this.compiled.discoverStep.select, row);
+    return this.mapSelect(this.compiled.select, row);
   }
 
-  private matchesWhere(
-    whereClauses: DiscoverWhereClause[],
-    row: DecodedAccountContext,
-    params: Record<string, unknown>,
-  ): boolean {
-    for (const clause of whereClauses) {
-      const left = readByPath(row, clause.path);
-      const right = resolveReference(clause.value, { param: params });
-      if (!compareValues(left, right, clause.op)) {
-        return false;
-      }
+  private matchesFilterSpec(spec: ViewFilterGroup | null, row: DecodedAccountContext, params: Record<string, unknown>): boolean {
+    if (!spec) {
+      return true;
     }
-    return true;
+    const matchesNode = (node: ViewFilterGroup | ViewFilterCondition): boolean => {
+      if ('field' in node) {
+        const left = readByPath(row, node.field);
+        const right = resolveReference(node.value, { param: params, input: params });
+        if (node.op === 'in' && Array.isArray(right)) {
+          return right.some((candidate) => compareValues(left, candidate, '='));
+        }
+        return compareValues(left, right, node.op === 'in' ? '=' : node.op);
+      }
+      if ('all' in node) {
+        return node.all.every((item) => matchesNode(item));
+      }
+      return node.any.some((item) => matchesNode(item));
+    };
+    return matchesNode(spec);
   }
 
-  private sortRows(rows: DecodedAccountContext[], sortClauses: DiscoverSortClause[]): void {
+  private sortRows(rows: DecodedAccountContext[], sortClauses: Array<{ field: string; dir: SortDirection }>): void {
     if (sortClauses.length === 0) {
       return;
     }
     rows.sort((left, right) => {
       for (const clause of sortClauses) {
-        const a = readByPath(left, clause.path);
-        const b = readByPath(right, clause.path);
+        const a = readByPath(left, clause.field);
+        const b = readByPath(right, clause.field);
         if (a === b) {
           continue;
         }
