@@ -14,6 +14,11 @@ This package provides generic, protocol-agnostic runtime logic for:
 - discover/derive/compute runtime primitives
 - read runtime for indexed views (`node/view-read-service`)
 
+For indexed search views, the node runtime expects the backing cache to provide:
+- latest raw account bytes in `cached_program_accounts`
+- temporal metadata such as `first_seen_slot` / `last_seen_slot`
+- deterministic shortlist queries before decode/filter/select
+
 Protocol-specific behavior belongs in pack data (`idl + meta + app`), not in runtime code.
 
 ## Exports

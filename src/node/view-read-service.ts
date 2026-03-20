@@ -760,8 +760,32 @@ export class AppPackViewReadService {
         data_hash BYTEA NOT NULL,
         data_len INTEGER NOT NULL,
         source TEXT NOT NULL,
+        first_seen_slot BIGINT NOT NULL DEFAULT 0,
+        first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_seen_slot BIGINT NOT NULL DEFAULT 0,
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+    `);
+
+    await this.pool.query(`
+      ALTER TABLE ${ACCOUNT_CACHE_TABLE}
+      ADD COLUMN IF NOT EXISTS first_seen_slot BIGINT NOT NULL DEFAULT 0;
+    `);
+
+    await this.pool.query(`
+      ALTER TABLE ${ACCOUNT_CACHE_TABLE}
+      ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    `);
+
+    await this.pool.query(`
+      ALTER TABLE ${ACCOUNT_CACHE_TABLE}
+      ADD COLUMN IF NOT EXISTS last_seen_slot BIGINT NOT NULL DEFAULT 0;
+    `);
+
+    await this.pool.query(`
+      ALTER TABLE ${ACCOUNT_CACHE_TABLE}
+      ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     `);
 
     await this.pool.query(`
@@ -777,6 +801,16 @@ export class AppPackViewReadService {
     await this.pool.query(`
       CREATE INDEX IF NOT EXISTS idx_cached_program_accounts_owner_disc8
       ON ${ACCOUNT_CACHE_TABLE} (owner_program_id, substring(data_bytes from 1 for 8));
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_cached_program_accounts_owner_first_seen_pubkey
+      ON ${ACCOUNT_CACHE_TABLE} (owner_program_id, first_seen_slot DESC, pubkey);
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_cached_program_accounts_owner_last_seen_pubkey
+      ON ${ACCOUNT_CACHE_TABLE} (owner_program_id, last_seen_slot DESC, pubkey);
     `);
 
     await this.migrateLegacyOrcaTablesIfNeeded();
@@ -1540,9 +1574,25 @@ export class AppPackViewReadService {
       const result = await this.pool.query(
         `
           INSERT INTO ${ACCOUNT_CACHE_TABLE}
-            (pubkey, owner_program_id, slot, lamports, rent_epoch, executable, data_bytes, data_hash, data_len, source, updated_at)
+            (
+              pubkey,
+              owner_program_id,
+              slot,
+              lamports,
+              rent_epoch,
+              executable,
+              data_bytes,
+              data_hash,
+              data_len,
+              source,
+              first_seen_slot,
+              first_seen_at,
+              last_seen_slot,
+              last_seen_at,
+              updated_at
+            )
           VALUES
-            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $11, NOW(), NOW())
           ON CONFLICT (pubkey) DO UPDATE
             SET owner_program_id = EXCLUDED.owner_program_id,
                 slot = EXCLUDED.slot,
@@ -1553,9 +1603,12 @@ export class AppPackViewReadService {
                 data_hash = EXCLUDED.data_hash,
                 data_len = EXCLUDED.data_len,
                 source = EXCLUDED.source,
+                last_seen_slot = GREATEST(${ACCOUNT_CACHE_TABLE}.last_seen_slot, EXCLUDED.last_seen_slot),
+                last_seen_at = NOW(),
                 updated_at = NOW()
           WHERE ${ACCOUNT_CACHE_TABLE}.slot < EXCLUDED.slot
              OR ${ACCOUNT_CACHE_TABLE}.data_hash <> EXCLUDED.data_hash
+             OR ${ACCOUNT_CACHE_TABLE}.last_seen_slot < EXCLUDED.last_seen_slot
           RETURNING pubkey
         `,
         [
@@ -1569,6 +1622,7 @@ export class AppPackViewReadService {
           hash,
           record.data.length,
           record.source,
+          record.slot,
         ],
       );
       upserted += result.rowCount ?? 0;
