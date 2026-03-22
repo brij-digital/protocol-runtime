@@ -15,6 +15,11 @@ These are the three main AppPack repositories:
 
 Downstream apps should install the runtime from GitHub Packages under the `@brij-digital` scope.
 
+## Package Naming
+
+Use `@brij-digital/apppack-runtime` directly in manifests and imports.
+Do not reintroduce the legacy `@agentform/apppack-runtime` alias.
+
 ## Scope
 
 This package provides generic, protocol-agnostic runtime logic for:
