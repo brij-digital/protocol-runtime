@@ -6,6 +6,15 @@ Used by:
 - `ec-ai-wallet` (browser app)
 - `apppack-view-service` (node read/index service)
 
+## Repo Relationship
+
+These are the three main AppPack repositories:
+- `apppack-runtime`: shared runtime package published via GitHub Packages
+- `ec-ai-wallet`: browser app consuming the published runtime package
+- `apppack-view-service`: node API/worker consuming the published runtime package
+
+Downstream apps should install the runtime from GitHub Packages under the `@brij-digital` scope.
+
 ## Scope
 
 This package provides generic, protocol-agnostic runtime logic for:
