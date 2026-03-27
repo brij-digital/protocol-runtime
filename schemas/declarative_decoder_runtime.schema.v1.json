@@ -141,6 +141,20 @@
         },
         "filters": {
           "type": "object",
+          "properties": {
+            "accountName": {
+              "oneOf": [
+                { "type": "string" },
+                {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              ]
+            },
+            "targetsFrom": {
+              "$ref": "#/$defs/sourceTargetsSpec"
+            }
+          },
           "additionalProperties": true
         },
         "cursor": {
@@ -158,6 +172,38 @@
         },
         "field": {
           "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "sourceTargetsSpec": {
+      "type": "object",
+      "required": ["kind", "stateRecordName"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["missing_state_from_records"]
+        },
+        "stateRecordName": {
+          "type": "string"
+        },
+        "recordNames": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "addressField": {
+          "type": "string",
+          "enum": ["resource_id", "subject_id"],
+          "default": "resource_id"
+        },
+        "lookbackMinutes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1
         }
       },
       "additionalProperties": false
