@@ -71,7 +71,7 @@ It means the view starts from a known address instead of a discovery scan.
 
 Protocol-specific behavior belongs in pack data (`idl + meta + app`), not in runtime code.
 For indexing/runtime ownership, the intended split is:
-- `Codama IDL`: declarative protocol description
+- `Codama IDL`: declarative protocol description and protocol source of truth
 - `declarative runtime spec`: declarative indexing contract
 - `MetaIDL/AppSpec`: declarative read/execution surface
 
