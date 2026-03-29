@@ -73,7 +73,14 @@ Protocol-specific behavior belongs in pack data (`idl + meta + app`), not in run
 For indexing/runtime ownership, the intended split is:
 - `Codama IDL`: declarative protocol description and protocol source of truth
 - `declarative runtime spec`: declarative indexing contract
-- `MetaIDL/AppSpec`: declarative read/execution surface
+- `app spec`: declarative product / agent flow
+
+`meta_idl` and `meta_idl.core` are now legacy transitional schemas.
+Do not add new protocol truth or new indexing logic there.
+New work should go into:
+- `Codama` for protocol structure
+- `runtime` for indexing / compute / projections
+- `app` for UX / agent flow
 
 ## Exports
 
