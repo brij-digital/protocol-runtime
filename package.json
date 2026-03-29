@@ -22,6 +22,10 @@
       "types": "./dist/idlDeclarativeRuntime.d.ts",
       "import": "./dist/idlDeclarativeRuntime.js"
     },
+    "./appSpecRuntime": {
+      "types": "./dist/appSpecRuntime.d.ts",
+      "import": "./dist/appSpecRuntime.js"
+    },
     "./metaIdlRuntime": {
       "types": "./dist/metaIdlRuntime.d.ts",
       "import": "./dist/metaIdlRuntime.js"

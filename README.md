@@ -47,7 +47,7 @@ Do not reintroduce the legacy `@agentform/apppack-runtime` alias.
 
 This package provides generic, protocol-agnostic runtime logic for:
 - IDL instruction preparation/simulate/send
-- MetaIDL operation materialization and execution
+- app-spec operation materialization and execution
 - discover/derive/compute runtime primitives
 - read runtime for indexed views (`node/view-read-service`)
 
@@ -69,7 +69,7 @@ The intended split is:
 In other words, `account` does not mean "stale cached forever".
 It means the view starts from a known address instead of a discovery scan.
 
-Protocol-specific behavior belongs in pack data (`idl + meta + app`), not in runtime code.
+Protocol-specific behavior belongs in pack data (`codama + runtime + app`), not in runtime code.
 For indexing/runtime ownership, the intended split is:
 - `Codama IDL`: declarative protocol description and protocol source of truth
 - `declarative runtime spec`: declarative indexing contract
@@ -86,6 +86,7 @@ New work should go into:
 
 - `@brij-digital/apppack-runtime`
 - `@brij-digital/apppack-runtime/idlDeclarativeRuntime`
+- `@brij-digital/apppack-runtime/appSpecRuntime`
 - `@brij-digital/apppack-runtime/metaIdlRuntime`
 - `@brij-digital/apppack-runtime/idlRegistry`
 - `@brij-digital/apppack-runtime/node/view-read-service`
@@ -107,6 +108,7 @@ npm run test
 ## Package Layout
 
 - `src/idlDeclarativeRuntime.ts`
+- `src/appSpecRuntime.ts`
 - `src/metaIdlRuntime.ts`
 - `src/metaDiscoverRegistry.ts`
 - `src/metaComputeRegistry.ts`
