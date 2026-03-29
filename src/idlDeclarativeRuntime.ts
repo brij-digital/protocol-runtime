@@ -22,9 +22,11 @@ type IdlProtocol = {
   network: string;
   programId: string;
   idlPath: string;
+  codamaIdlPath?: string;
+  runtimeSpecPath?: string;
   metaPath?: string;
   metaCorePath?: string;
-  appPath?: string;
+  appPath: string;
   transport: string;
   supportedCommands: string[];
   status: 'active' | 'inactive';
@@ -524,18 +526,20 @@ function sampleValueForType(idl: Idl, type: IdlTypeRef | unknown): unknown {
 export async function listIdlProtocols(): Promise<{
   version: string | null;
   globalCommands: string[];
-  protocols: Array<{
-    id: string;
-    name: string;
-    network: string;
-    programId: string;
-    idlPath: string;
-    metaPath: string | null;
-    metaCorePath: string | null;
-    appPath: string | null;
-    supportedCommands: string[];
-    status: 'active' | 'inactive';
-  }>;
+    protocols: Array<{
+      id: string;
+      name: string;
+      network: string;
+      programId: string;
+      idlPath: string;
+      codamaIdlPath: string | null;
+      runtimeSpecPath: string | null;
+      metaPath: string | null;
+      metaCorePath: string | null;
+      appPath: string;
+      supportedCommands: string[];
+      status: 'active' | 'inactive';
+    }>;
 }> {
   const registryResponse = await fetch(resolveAppUrl('/idl/registry.json'));
   if (!registryResponse.ok) {
@@ -554,9 +558,11 @@ export async function listIdlProtocols(): Promise<{
       network: protocol.network,
       programId: protocol.programId,
       idlPath: protocol.idlPath,
+      codamaIdlPath: protocol.codamaIdlPath ?? null,
+      runtimeSpecPath: protocol.runtimeSpecPath ?? null,
       metaPath: protocol.metaPath ?? null,
       metaCorePath: protocol.metaCorePath ?? null,
-      appPath: protocol.appPath ?? null,
+      appPath: protocol.appPath,
       supportedCommands: protocol.supportedCommands ?? [],
       status: protocol.status,
     })),

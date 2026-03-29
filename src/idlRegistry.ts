@@ -4,9 +4,11 @@ export type ProtocolManifest = {
   network: string;
   programId: string;
   idlPath: string;
+  codamaIdlPath?: string;
+  runtimeSpecPath?: string;
   metaPath?: string;
   metaCorePath?: string;
-  appPath?: string;
+  appPath: string;
   transport: string;
   supportedCommands: string[];
   status: 'active' | 'inactive';

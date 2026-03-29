@@ -1200,7 +1200,8 @@ async function loadMetaSpec(protocolId: string): Promise<MetaIdlSpec> {
   }
 
   const protocol = await getProtocolById(protocolId);
-  const corePath = protocol.metaCorePath ?? protocol.metaPath ?? null;
+  const appPath = protocol.appPath ?? null;
+  const legacyPath = protocol.metaCorePath ?? protocol.metaPath ?? null;
 
   const loadJsonByPath = async (filePath: string): Promise<unknown> => {
     const response = await fetch(resolveAppUrl(filePath));
@@ -1210,15 +1211,13 @@ async function loadMetaSpec(protocolId: string): Promise<MetaIdlSpec> {
     return response.json();
   };
 
-  const coreSpec = corePath ? toMetaCoreSpec(await loadJsonByPath(corePath), protocolId, corePath) : null;
-  const isLegacyCombined = coreSpec?.schema === META_IDL_SCHEMA;
-
-  const appPath = isLegacyCombined ? null : protocol.appPath ?? null;
   const appSpec = appPath ? toMetaAppSpec(await loadJsonByPath(appPath), protocolId, appPath) : null;
+  const coreSpec = appSpec ? null : (legacyPath ? toMetaCoreSpec(await loadJsonByPath(legacyPath), protocolId, legacyPath) : null);
+  const isLegacyCombined = !appSpec && coreSpec?.schema === META_IDL_SCHEMA;
 
-  const resolvedApps = isLegacyCombined
-    ? (coreSpec?.apps ?? {})
-    : (appSpec?.apps ?? {});
+  const resolvedApps = appSpec
+    ? (appSpec.apps ?? {})
+    : (coreSpec?.apps ?? {});
 
   const merged: MetaIdlSpec = {
     schema: META_IDL_SCHEMA,
