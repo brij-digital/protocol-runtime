@@ -104,10 +104,6 @@ export async function resolveProtocolCodecIdlPath(protocolId: string): Promise<s
   for (const artifact of Object.values(runtimeSpec?.decoderArtifacts ?? {})) {
     if (typeof artifact.codecIdlPath === 'string' && artifact.codecIdlPath.length > 0) {
       runtimeCodecPaths.add(artifact.codecIdlPath);
-      continue;
-    }
-    if (typeof artifact.idlPath === 'string' && artifact.idlPath.length > 0) {
-      runtimeCodecPaths.add(artifact.idlPath);
     }
   }
 

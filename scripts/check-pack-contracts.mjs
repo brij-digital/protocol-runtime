@@ -88,11 +88,12 @@ async function main() {
               fail(`${codamaPath} is not a Codama IDL.`);
             }
           }
-          if (artifact.codecIdlPath != null) {
-            if (typeof artifact.codecIdlPath !== 'string' || !artifact.codecIdlPath.startsWith('/idl/')) {
-              fail(`${filePath}.decoderArtifacts.${artifactName} has invalid codecIdlPath.`);
-            }
-            await assertFile(path.join(packDir, artifact.codecIdlPath.slice('/idl/'.length)));
+          if (typeof artifact.codecIdlPath !== 'string' || !artifact.codecIdlPath.startsWith('/idl/')) {
+            fail(`${filePath}.decoderArtifacts.${artifactName} must declare codecIdlPath.`);
+          }
+          await assertFile(path.join(packDir, artifact.codecIdlPath.slice('/idl/'.length)));
+          if (artifact.idlPath != null) {
+            fail(`${filePath}.decoderArtifacts.${artifactName} must not declare legacy idlPath.`);
           }
         }
       }
