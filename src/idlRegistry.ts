@@ -111,15 +111,21 @@ export async function resolveProtocolCodecIdlPath(protocolId: string): Promise<s
     }
   }
 
-  const resolved =
-    runtimeCodecPaths.size === 1
-      ? Array.from(runtimeCodecPaths)[0]
-      : runtimeCodecPaths.size > 1
-        ? (() => {
-            throw new Error(`Protocol ${protocolId} declares multiple codec IDL paths in runtime spec; resolve the ambiguity before execution.`);
-          })()
-        : manifest.idlPath;
+  if (runtimeSpec) {
+    if (runtimeCodecPaths.size === 0) {
+      throw new Error(
+        `Protocol ${protocolId} has a runtime spec but no codec IDL path in decoderArtifacts; migrated execution must resolve codecs from runtime spec.`,
+      );
+    }
+    if (runtimeCodecPaths.size > 1) {
+      throw new Error(`Protocol ${protocolId} declares multiple codec IDL paths in runtime spec; resolve the ambiguity before execution.`);
+    }
+    const resolved = Array.from(runtimeCodecPaths)[0]!;
+    codecIdlPathCache.set(protocolId, resolved);
+    return resolved;
+  }
 
+  const resolved = manifest.idlPath;
   if (!resolved) {
     throw new Error(`Protocol ${protocolId} has no codec IDL path; migrated execution must provide one via runtimeSpec.decoderArtifacts.*.codecIdlPath.`);
   }

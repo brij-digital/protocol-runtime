@@ -103,6 +103,10 @@ async function main() {
       }
     }
 
+    if (protocol.runtimeSpecPath != null && protocol.idlPath != null) {
+      fail(`Protocol ${protocol.id} still declares registry idlPath alongside runtimeSpecPath; migrated pack contracts must source codec IDL from runtime decoderArtifacts only.`);
+    }
+
     for (const legacyKey of ['metaPath', 'metaCorePath']) {
       if (protocol[legacyKey] != null) {
         fail(`Protocol ${protocol.id} still declares legacy ${legacyKey}; active pack contracts are codama/runtime/app only.`);
