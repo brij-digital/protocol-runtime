@@ -54,7 +54,7 @@ async function main() {
       fail(`Protocol ${protocol.id} has invalid idlPath.`);
     }
 
-    for (const key of ['idlPath', 'codamaIdlPath', 'runtimeSpecPath', 'metaPath', 'metaCorePath', 'appPath']) {
+    for (const key of ['idlPath', 'codamaIdlPath', 'runtimeSpecPath', 'appPath']) {
       const value = protocol[key];
       if (value == null) {
         continue;
@@ -67,11 +67,6 @@ async function main() {
       const parsed = await loadJson(filePath);
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         fail(`${filePath} did not parse as a JSON object.`);
-      }
-      if (key === 'metaPath' || key === 'metaCorePath') {
-        if (typeof parsed.schema !== 'string' || !parsed.schema.startsWith('meta-idl')) {
-          fail(`${filePath} has invalid meta schema marker.`);
-        }
       }
       if (key === 'appPath') {
         if (typeof parsed.schema !== 'string' || !parsed.schema.startsWith('meta-app')) {
@@ -109,6 +104,12 @@ async function main() {
         if (parsed.standard !== 'codama') {
           fail(`${filePath} is not a Codama IDL.`);
         }
+      }
+    }
+
+    for (const legacyKey of ['metaPath', 'metaCorePath']) {
+      if (protocol[legacyKey] != null) {
+        fail(`Protocol ${protocol.id} still declares legacy ${legacyKey}; active pack contracts are codama/runtime/app only.`);
       }
     }
   }

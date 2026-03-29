@@ -287,9 +287,7 @@ type ResolverContext = {
     network: string;
     programId: string;
     idlPath: string;
-    metaPath?: string;
-    metaCorePath?: string;
-    appPath?: string;
+    appPath: string;
   };
   meta: MetaIdlSpec;
   input: Record<string, unknown>;
@@ -1200,8 +1198,7 @@ async function loadMetaSpec(protocolId: string): Promise<MetaIdlSpec> {
   }
 
   const protocol = await getProtocolById(protocolId);
-  const appPath = protocol.appPath ?? null;
-  const legacyPath = protocol.metaCorePath ?? protocol.metaPath ?? null;
+  const appPath = protocol.appPath;
 
   const loadJsonByPath = async (filePath: string): Promise<unknown> => {
     const response = await fetch(resolveAppUrl(filePath));
@@ -1211,22 +1208,17 @@ async function loadMetaSpec(protocolId: string): Promise<MetaIdlSpec> {
     return response.json();
   };
 
-  const appSpec = appPath ? toMetaAppSpec(await loadJsonByPath(appPath), protocolId, appPath) : null;
-  const coreSpec = appSpec ? null : (legacyPath ? toMetaCoreSpec(await loadJsonByPath(legacyPath), protocolId, legacyPath) : null);
-  const isLegacyCombined = !appSpec && coreSpec?.schema === META_IDL_SCHEMA;
-
-  const resolvedApps = appSpec
-    ? (appSpec.apps ?? {})
-    : (coreSpec?.apps ?? {});
+  const appSpec = toMetaAppSpec(await loadJsonByPath(appPath), protocolId, appPath);
+  const resolvedApps = appSpec.apps ?? {};
 
   const merged: MetaIdlSpec = {
     schema: META_IDL_SCHEMA,
-    version: (appSpec?.version ?? coreSpec?.version)!,
-    protocolId: (appSpec?.protocolId ?? coreSpec?.protocolId)!,
-    ...(typeof (appSpec?.label ?? coreSpec?.label) === 'string' ? { label: appSpec?.label ?? coreSpec?.label } : {}),
-    ...((appSpec?.sources ?? coreSpec?.sources) ? { sources: appSpec?.sources ?? coreSpec?.sources } : {}),
-    ...((appSpec?.templates ?? coreSpec?.templates) ? { templates: appSpec?.templates ?? coreSpec?.templates } : {}),
-    ...((appSpec?.operations ?? coreSpec?.operations) ? { operations: appSpec?.operations ?? coreSpec?.operations } : {}),
+    version: appSpec.version,
+    protocolId: appSpec.protocolId,
+    ...(typeof appSpec.label === 'string' ? { label: appSpec.label } : {}),
+    ...(appSpec.sources ? { sources: appSpec.sources } : {}),
+    ...(appSpec.templates ? { templates: appSpec.templates } : {}),
+    ...(appSpec.operations ? { operations: appSpec.operations } : {}),
     apps: resolvedApps,
   };
 
@@ -1524,9 +1516,7 @@ async function prepareMetaOperationInternal(options: {
       network: protocol.network,
       programId: protocol.programId,
       idlPath: protocol.idlPath,
-      ...(protocol.metaPath ? { metaPath: protocol.metaPath } : {}),
-      ...(protocol.metaCorePath ? { metaCorePath: protocol.metaCorePath } : {}),
-      ...(protocol.appPath ? { appPath: protocol.appPath } : {}),
+      appPath: protocol.appPath,
     },
     meta,
   };

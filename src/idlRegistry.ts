@@ -6,8 +6,6 @@ export type ProtocolManifest = {
   idlPath: string;
   codamaIdlPath?: string;
   runtimeSpecPath?: string;
-  metaPath?: string;
-  metaCorePath?: string;
   appPath: string;
   transport: string;
   supportedCommands: string[];

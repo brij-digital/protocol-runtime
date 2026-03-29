@@ -24,8 +24,6 @@ type IdlProtocol = {
   idlPath: string;
   codamaIdlPath?: string;
   runtimeSpecPath?: string;
-  metaPath?: string;
-  metaCorePath?: string;
   appPath: string;
   transport: string;
   supportedCommands: string[];
@@ -534,8 +532,6 @@ export async function listIdlProtocols(): Promise<{
       idlPath: string;
       codamaIdlPath: string | null;
       runtimeSpecPath: string | null;
-      metaPath: string | null;
-      metaCorePath: string | null;
       appPath: string;
       supportedCommands: string[];
       status: 'active' | 'inactive';
@@ -560,8 +556,6 @@ export async function listIdlProtocols(): Promise<{
       idlPath: protocol.idlPath,
       codamaIdlPath: protocol.codamaIdlPath ?? null,
       runtimeSpecPath: protocol.runtimeSpecPath ?? null,
-      metaPath: protocol.metaPath ?? null,
-      metaCorePath: protocol.metaCorePath ?? null,
       appPath: protocol.appPath,
       supportedCommands: protocol.supportedCommands ?? [],
       status: protocol.status,
