@@ -195,8 +195,6 @@ type AppPackViewReadServiceOptions = {
   cacheTtlMs: number;
   appPath?: string;
   codecIdlPath?: string;
-  metaPath?: string;
-  idlPath?: string;
   programId: string;
   operationId: string;
 };
@@ -247,8 +245,8 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function parseMetaPack(metaPath: string): MetaPack {
-  return JSON.parse(fs.readFileSync(metaPath, 'utf8')) as MetaPack;
+function parseOperationPack(appPath: string): MetaPack {
+  return JSON.parse(fs.readFileSync(appPath, 'utf8')) as MetaPack;
 }
 
 function parseIdl(idlPath: string): Idl {
@@ -447,19 +445,18 @@ function inferPairParams(
   if (direct[0] && direct[1]) {
     return direct;
   }
-  // Backward-compatible fallback for legacy specs that still use or_filters.
-    const params = new Set<string>();
-    const groups = step.or_filters ?? [];
-    for (const group of groups) {
-      for (const condition of group) {
-        const ref = condition.memcmp.bytesFrom;
-        if (typeof ref !== 'string') {
-          continue;
-        }
-        if (ref.startsWith('$param.')) {
-          params.add(ref.slice('$param.'.length));
-        }
+  const params = new Set<string>();
+  const groups = step.or_filters ?? [];
+  for (const group of groups) {
+    for (const condition of group) {
+      const ref = condition.memcmp.bytesFrom;
+      if (typeof ref !== 'string') {
+        continue;
       }
+      if (ref.startsWith('$param.')) {
+        params.add(ref.slice('$param.'.length));
+      }
+    }
   }
   const values = Array.from(params);
   if (values.length >= 2) {
@@ -582,7 +579,7 @@ function normalizeIndexedFilterGroups(spec: ViewFilterGroup | undefined | null):
 function compileOperation(meta: MetaPack, coder: BorshAccountsCoder, options: AppPackViewReadServiceOptions): CompiledOperation {
   const operation = meta.operations?.[options.operationId];
   if (!operation) {
-    throw new Error(`Operation ${options.operationId} not found in meta IDL.`);
+    throw new Error(`Operation ${options.operationId} not found in the app operation pack.`);
   }
   const operationInputDefs = operation.inputs ?? {};
 
@@ -725,16 +722,16 @@ export class AppPackViewReadService {
         : null;
     }
 
-    const appPath = options.appPath ?? options.metaPath;
+    const appPath = options.appPath;
     if (!appPath) {
-      throw new Error('AppPackViewReadService requires appPath (or legacy metaPath).');
+      throw new Error('AppPackViewReadService requires appPath.');
     }
-    const codecIdlPath = options.codecIdlPath ?? options.idlPath;
+    const codecIdlPath = options.codecIdlPath;
     if (!codecIdlPath) {
-      throw new Error('AppPackViewReadService requires codecIdlPath (or legacy idlPath).');
+      throw new Error('AppPackViewReadService requires codecIdlPath.');
     }
 
-    const meta = parseMetaPack(path.resolve(appPath));
+    const meta = parseOperationPack(path.resolve(appPath));
     const idl = parseIdl(path.resolve(codecIdlPath));
     this.coder = new BorshAccountsCoder(idl);
     this.compiled = compileOperation(meta, this.coder, options);

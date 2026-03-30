@@ -250,8 +250,8 @@ test('runRead queries cached_program_accounts via binary memcmp and returns sort
     databaseUrl: null,
     poolOverride: pool,
     cacheTtlMs: 1000,
-    metaPath,
-    idlPath,
+    appPath: metaPath,
+    codecIdlPath: idlPath,
     programId: PROGRAM_ID,
     operationId: 'list_pools',
   });
@@ -334,8 +334,8 @@ test('runRead supports view v0.2 search shape with indexed_filters and decoded f
     databaseUrl: null,
     poolOverride: pool,
     cacheTtlMs: 1000,
-    metaPath,
-    idlPath,
+    appPath: metaPath,
+    codecIdlPath: idlPath,
     programId: PROGRAM_ID,
     operationId: 'list_pools',
   });
@@ -405,8 +405,8 @@ test('syncFullToDatabase bootstraps cached_program_accounts for view v0.2 search
     databaseUrl: null,
     poolOverride: pool,
     cacheTtlMs: 1000,
-    metaPath,
-    idlPath,
+    appPath: metaPath,
+    codecIdlPath: idlPath,
     programId: PROGRAM_ID,
     operationId: 'list_pools',
   });
