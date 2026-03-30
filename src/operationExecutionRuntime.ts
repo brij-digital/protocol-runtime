@@ -7,8 +7,8 @@ import { previewIdlInstruction } from './idlDeclarativeRuntime.js';
 import { runRegisteredComputeStep } from './metaComputeRegistry.js';
 import { runRegisteredDiscoverStep } from './metaDiscoverRegistry.js';
 import {
-  loadProtocolRuntimeIdlFromCodama,
-  type RuntimeIdl as Idl,
+  loadProtocolCompiledCodecFromCodama,
+  type CompiledCodec as Idl,
 } from './codamaIdl.js';
 import { DirectAccountsCoder } from './directAccountsCoder.js';
 import {
@@ -347,7 +347,7 @@ async function loadProtocolIdl(protocolId: string): Promise<Idl> {
   if (cached) {
     return cached;
   }
-  const parsed = await loadProtocolRuntimeIdlFromCodama(protocolId);
+  const parsed = await loadProtocolCompiledCodecFromCodama(protocolId);
   idlCache.set(protocolId, parsed);
   return parsed;
 }

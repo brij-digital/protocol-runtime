@@ -1,45 +1,33 @@
 import * as borsh from '@coral-xyz/borsh';
 import { Buffer } from 'node:buffer';
+import type {
+  CompiledCodecInstruction,
+  CompiledCodecTypeRef,
+} from './codamaIdl.js';
 
-type IdlTypeRef =
-  | string
-  | { option: IdlTypeRef }
-  | { vec: IdlTypeRef }
-  | { array: [IdlTypeRef, number] }
-  | { defined: string | { name: string; generics?: unknown[] } };
-
-type IdlField = {
+type CodecField = {
   name?: string;
-  type: IdlTypeRef;
+  type: CompiledCodecTypeRef;
 };
 
-type IdlVariant = {
+type CodecVariant = {
   name: string;
-  fields?: IdlField[] | IdlTypeRef[];
+  fields?: CodecField[] | CompiledCodecTypeRef[];
 };
 
-type IdlTypeDef = {
+type CodecTypeDef = {
   name: string;
   type:
-    | { kind: 'struct'; fields?: IdlField[] | IdlTypeRef[] }
-    | { kind: 'enum'; variants: IdlVariant[] }
-    | { kind: 'type'; alias: IdlTypeRef };
+    | { kind: 'struct'; fields?: CodecField[] | CompiledCodecTypeRef[] }
+    | { kind: 'enum'; variants: CodecVariant[] }
+    | { kind: 'type'; alias: CompiledCodecTypeRef };
 };
-
-type IdlInstructionArg = {
-  name: string;
-  type: IdlTypeRef;
+type CodecInstructionDef = Omit<CompiledCodecInstruction, 'args'> & {
+  args?: Array<{ name: string; type: CompiledCodecTypeRef }>;
 };
-
-type IdlInstructionDef = {
-  name: string;
-  discriminator: number[];
-  args?: IdlInstructionArg[];
-};
-
-export type DirectInstructionIdl = {
-  instructions?: IdlInstructionDef[];
-  types?: IdlTypeDef[];
+export type DirectInstructionCodec = {
+  instructions?: CodecInstructionDef[];
+  types?: CodecTypeDef[];
 };
 
 type LayoutLike = {
@@ -49,26 +37,26 @@ type LayoutLike = {
 };
 
 function handleDefinedFields<T>(
-  fields: IdlField[] | IdlTypeRef[] | undefined,
+  fields: CodecField[] | CompiledCodecTypeRef[] | undefined,
   unitCb: () => T,
-  namedCb: (fields: IdlField[]) => T,
-  tupleCb: (fields: IdlTypeRef[]) => T,
+  namedCb: (fields: CodecField[]) => T,
+  tupleCb: (fields: CompiledCodecTypeRef[]) => T,
 ): T {
   if (!fields || fields.length === 0) {
     return unitCb();
   }
-  const first = fields[0] as IdlField | IdlTypeRef;
+  const first = fields[0] as CodecField | CompiledCodecTypeRef;
   if (typeof first === 'object' && first && 'name' in first) {
-    return namedCb(fields as IdlField[]);
+    return namedCb(fields as CodecField[]);
   }
-  return tupleCb(fields as IdlTypeRef[]);
+  return tupleCb(fields as CompiledCodecTypeRef[]);
 }
 
 function resolveDefinedName(type: string | { name: string }): string {
   return typeof type === 'string' ? type : type.name;
 }
 
-function typeDefLayout(typeDef: IdlTypeDef, types: IdlTypeDef[], name?: string): LayoutLike {
+function typeDefLayout(typeDef: CodecTypeDef, types: CodecTypeDef[], name?: string): LayoutLike {
   switch (typeDef.type.kind) {
     case 'struct': {
       const fieldLayouts = handleDefinedFields(
@@ -99,7 +87,7 @@ function typeDefLayout(typeDef: IdlTypeDef, types: IdlTypeDef[], name?: string):
   }
 }
 
-function fieldLayout(field: { name?: string; type: IdlTypeRef }, types: IdlTypeDef[]): LayoutLike {
+function fieldLayout(field: { name?: string; type: CompiledCodecTypeRef }, types: CodecTypeDef[]): LayoutLike {
   const fieldName = field.name;
   switch (field.type) {
     case 'bool':
@@ -168,9 +156,9 @@ function fieldLayout(field: { name?: string; type: IdlTypeRef }, types: IdlTypeD
 export class DirectInstructionCoder {
   private readonly instructionLayouts: Map<string, { discriminator: number[]; layout: LayoutLike }>;
 
-  constructor(idl: DirectInstructionIdl) {
-    const instructions = idl.instructions ?? [];
-    const types = idl.types ?? [];
+  constructor(codec: DirectInstructionCodec) {
+    const instructions = codec.instructions ?? [];
+    const types = codec.types ?? [];
     const layouts = instructions.map((instruction) => [
       instruction.name,
       {

@@ -13,8 +13,8 @@ import {
   type ProtocolManifest,
 } from './idlRegistry.js';
 import {
-  loadProtocolRuntimeIdlFromCodama,
-  type RuntimeIdl as Idl,
+  loadProtocolCompiledCodecFromCodama,
+  type CompiledCodec as Idl,
 } from './codamaIdl.js';
 import { DirectAccountsCoder } from './directAccountsCoder.js';
 import { DirectInstructionCoder } from './directInstructionCoder.js';
@@ -325,7 +325,7 @@ async function loadProtocolAndIdl(protocolId: string): Promise<{ protocol: Proto
     };
   }
 
-  const parsed = await loadProtocolRuntimeIdlFromCodama(protocolId);
+  const parsed = await loadProtocolCompiledCodecFromCodama(protocolId);
   idlCache.set(protocol.id, parsed);
 
   return {

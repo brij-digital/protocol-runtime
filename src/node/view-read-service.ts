@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Connection, PublicKey, type Commitment, type GetProgramAccountsFilter } from '@solana/web3.js';
-import { compileCodamaToRuntimeIdl } from '../codamaIdl.js';
-import { DirectAccountsCoder, type DirectAccountIdl } from '../directAccountsCoder.js';
+import { compileCodamaToCodec } from '../codamaIdl.js';
+import { DirectAccountsCoder, type DirectAccountCodec } from '../directAccountsCoder.js';
 import { Pool } from 'pg';
 
 type SortDirection = 'asc' | 'desc';
@@ -237,7 +237,7 @@ function parseOperationPack(runtimePath: string): MetaPack {
   return JSON.parse(fs.readFileSync(runtimePath, 'utf8')) as MetaPack;
 }
 
-function parseRuntimeCodamaIdl(runtimePath: string, protocolId: string): DirectAccountIdl {
+function parseRuntimeCodamaCodec(runtimePath: string, protocolId: string): DirectAccountCodec {
   const runtime = parseOperationPack(runtimePath);
   const artifactEntries = Object.entries(runtime.decoderArtifacts ?? {});
   if (artifactEntries.length === 0) {
@@ -253,7 +253,7 @@ function parseRuntimeCodamaIdl(runtimePath: string, protocolId: string): DirectA
   }
   const codamaFilePath = path.join(path.dirname(runtimePath), codamaPath.slice('/idl/'.length));
   const codama = JSON.parse(fs.readFileSync(codamaFilePath, 'utf8'));
-  return compileCodamaToRuntimeIdl(codama) as unknown as DirectAccountIdl;
+  return compileCodamaToCodec(codama) as unknown as DirectAccountCodec;
 }
 
 function parsePublicKey(value: string, name: string): PublicKey {
@@ -635,8 +635,8 @@ export class AppPackViewReadService {
 
     const runtimePath = options.runtimePath;
     const meta = parseOperationPack(path.resolve(runtimePath));
-    const idl = parseRuntimeCodamaIdl(path.resolve(runtimePath), options.protocolId);
-    this.coder = new DirectAccountsCoder(idl);
+    const codec = parseRuntimeCodamaCodec(path.resolve(runtimePath), options.protocolId);
+    this.coder = new DirectAccountsCoder(codec);
     this.compiled = compileOperation(meta, this.coder, options);
   }
 

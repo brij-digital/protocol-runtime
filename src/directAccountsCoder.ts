@@ -1,42 +1,34 @@
 import * as borsh from '@coral-xyz/borsh';
 import bs58 from 'bs58';
 import { Buffer } from 'node:buffer';
+import type {
+  CompiledCodecAccount,
+  CompiledCodecTypeRef,
+} from './codamaIdl.js';
 
 type JsonRecord = Record<string, unknown>;
 
-type IdlTypeRef =
-  | string
-  | { option: IdlTypeRef }
-  | { vec: IdlTypeRef }
-  | { array: [IdlTypeRef, number] }
-  | { defined: string | { name: string; generics?: unknown[] } };
-
-type IdlField = {
+type CodecField = {
   name?: string;
-  type: IdlTypeRef;
+  type: CompiledCodecTypeRef;
 };
 
-type IdlVariant = {
+type CodecVariant = {
   name: string;
-  fields?: IdlField[] | IdlTypeRef[];
+  fields?: CodecField[] | CompiledCodecTypeRef[];
 };
 
-type IdlTypeDef = {
+type CodecTypeDef = {
   name: string;
   type:
-    | { kind: 'struct'; fields?: IdlField[] | IdlTypeRef[] }
-    | { kind: 'enum'; variants: IdlVariant[] }
-    | { kind: 'type'; alias: IdlTypeRef };
+    | { kind: 'struct'; fields?: CodecField[] | CompiledCodecTypeRef[] }
+    | { kind: 'enum'; variants: CodecVariant[] }
+    | { kind: 'type'; alias: CompiledCodecTypeRef };
 };
-
-type IdlAccountDef = {
-  name: string;
-  discriminator: number[];
-};
-
-export type DirectAccountIdl = {
-  accounts?: IdlAccountDef[];
-  types?: IdlTypeDef[];
+type CodecAccountDef = CompiledCodecAccount;
+export type DirectAccountCodec = {
+  accounts?: CodecAccountDef[];
+  types?: CodecTypeDef[];
 };
 
 type LayoutLike = {
@@ -68,26 +60,26 @@ function asString(value: unknown, label: string): string {
 }
 
 function handleDefinedFields<T>(
-  fields: IdlField[] | IdlTypeRef[] | undefined,
+  fields: CodecField[] | CompiledCodecTypeRef[] | undefined,
   unitCb: () => T,
-  namedCb: (fields: IdlField[]) => T,
-  tupleCb: (fields: IdlTypeRef[]) => T,
+  namedCb: (fields: CodecField[]) => T,
+  tupleCb: (fields: CompiledCodecTypeRef[]) => T,
 ): T {
   if (!fields || fields.length === 0) {
     return unitCb();
   }
-  const first = fields[0] as IdlField | IdlTypeRef;
+  const first = fields[0] as CodecField | CompiledCodecTypeRef;
   if (typeof first === 'object' && first && 'name' in first) {
-    return namedCb(fields as IdlField[]);
+    return namedCb(fields as CodecField[]);
   }
-  return tupleCb(fields as IdlTypeRef[]);
+  return tupleCb(fields as CompiledCodecTypeRef[]);
 }
 
 function resolveDefinedName(type: string | { name: string }): string {
   return typeof type === 'string' ? type : type.name;
 }
 
-function typeDefLayout(typeDef: IdlTypeDef, types: IdlTypeDef[], name?: string): LayoutLike {
+function typeDefLayout(typeDef: CodecTypeDef, types: CodecTypeDef[], name?: string): LayoutLike {
   switch (typeDef.type.kind) {
     case 'struct': {
       const fieldLayouts = handleDefinedFields(
@@ -118,7 +110,7 @@ function typeDefLayout(typeDef: IdlTypeDef, types: IdlTypeDef[], name?: string):
   }
 }
 
-function fieldLayout(field: { name?: string; type: IdlTypeRef }, types: IdlTypeDef[]): LayoutLike {
+function fieldLayout(field: { name?: string; type: CompiledCodecTypeRef }, types: CodecTypeDef[]): LayoutLike {
   const fieldName = field.name;
   switch (field.type) {
     case 'bool':
@@ -184,7 +176,7 @@ function fieldLayout(field: { name?: string; type: IdlTypeRef }, types: IdlTypeD
   }
 }
 
-function typeSize(type: IdlTypeRef, idl: DirectAccountIdl): number {
+function typeSize(type: CompiledCodecTypeRef, codec: DirectAccountCodec): number {
   switch (type) {
     case 'bool':
     case 'u8':
@@ -216,18 +208,18 @@ function typeSize(type: IdlTypeRef, idl: DirectAccountIdl): number {
     default: {
       if (typeof type === 'object' && type) {
         if ('option' in type) {
-          return 1 + typeSize(type.option, idl);
+          return 1 + typeSize(type.option, codec);
         }
         if ('vec' in type) {
           return 1;
         }
         if ('array' in type) {
           const [innerType, length] = type.array;
-          return typeSize(innerType, idl) * length;
+          return typeSize(innerType, codec) * length;
         }
         if ('defined' in type) {
           const definedName = resolveDefinedName(type.defined);
-          const typeDef = (idl.types ?? []).find((entry) => entry.name === definedName);
+          const typeDef = (codec.types ?? []).find((entry) => entry.name === definedName);
           if (!typeDef) {
             throw new Error(`Type not found: ${definedName}`);
           }
@@ -236,22 +228,22 @@ function typeSize(type: IdlTypeRef, idl: DirectAccountIdl): number {
               return handleDefinedFields(
                 typeDef.type.fields,
                 () => 0,
-                (fields) => fields.reduce((sum, field) => sum + typeSize(field.type, idl), 0),
-                (fields) => fields.reduce((sum, field) => sum + typeSize(field, idl), 0),
+                (fields) => fields.reduce((sum, field) => sum + typeSize(field.type, codec), 0),
+                (fields) => fields.reduce((sum, field) => sum + typeSize(field, codec), 0),
               );
             case 'enum': {
               const variantSizes = typeDef.type.variants.map((variant) =>
                 handleDefinedFields(
                   variant.fields,
                   () => 0,
-                  (fields) => fields.reduce((sum, field) => sum + typeSize(field.type, idl), 0),
-                  (fields) => fields.reduce((sum, field) => sum + typeSize(field, idl), 0),
+                  (fields) => fields.reduce((sum, field) => sum + typeSize(field.type, codec), 0),
+                  (fields) => fields.reduce((sum, field) => sum + typeSize(field, codec), 0),
                 ),
               );
               return 1 + Math.max(0, ...variantSizes);
             }
             case 'type':
-              return typeSize(typeDef.type.alias, idl);
+              return typeSize(typeDef.type.alias, codec);
             default:
               throw new Error('Unsupported type kind.');
           }
@@ -263,13 +255,13 @@ function typeSize(type: IdlTypeRef, idl: DirectAccountIdl): number {
 }
 
 export class DirectAccountsCoder {
-  private readonly idl: DirectAccountIdl;
+  private readonly codec: DirectAccountCodec;
   private readonly accountLayouts: Map<string, { discriminator: number[]; layout: LayoutLike }>;
 
-  constructor(idl: DirectAccountIdl) {
-    this.idl = idl;
-    const accounts = idl.accounts ?? [];
-    const types = idl.types ?? [];
+  constructor(codec: DirectAccountCodec) {
+    this.codec = codec;
+    const accounts = codec.accounts ?? [];
+    const types = codec.types ?? [];
     const layouts = accounts.map((account) => {
       const typeDef = types.find((entry) => entry.name === account.name);
       if (!typeDef) {
@@ -343,10 +335,10 @@ export class DirectAccountsCoder {
   }
 
   size(accountName: string): number {
-    const account = (this.idl.accounts ?? []).find((entry) => entry.name === accountName);
+    const account = (this.codec.accounts ?? []).find((entry) => entry.name === accountName);
     if (!account) {
       throw new Error(`Account not found: ${accountName}`);
     }
-    return Buffer.from(account.discriminator).length + typeSize({ defined: accountName }, this.idl);
+    return Buffer.from(account.discriminator).length + typeSize({ defined: { name: accountName } }, this.codec);
   }
 }

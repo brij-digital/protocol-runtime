@@ -3,7 +3,7 @@ import { Buffer } from 'buffer';
 import bs58 from 'bs58';
 import { resolveAppUrl } from './appUrl.js';
 import { isBnLike } from './bnLike.js';
-import type { RuntimeIdl as Idl } from './codamaIdl.js';
+import type { CompiledCodec as Idl } from './codamaIdl.js';
 import { DirectAccountsCoder } from './directAccountsCoder.js';
 
 export type DiscoverStepResolved = {
