@@ -98,7 +98,7 @@ npm run test
 - `src/idlDeclarativeRuntime.ts`
 - `src/metaDiscoverRegistry.ts`
 - `src/metaComputeRegistry.ts`
-- `src/runtimeCodecPlan.ts`
+- `src/codamaAnchor.ts`
 - `src/node/view-read-service.ts`
 
 ## Versioning Notes

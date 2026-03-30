@@ -36,9 +36,7 @@ async function assertFile(filePath) {
 async function main() {
   const { packDir } = parseArgs();
   const registryPath = path.join(packDir, 'registry.json');
-  const codecPlanPath = path.join(packDir, 'runtime-codec-plan.json');
   await assertFile(registryPath);
-  await assertFile(codecPlanPath);
 
   const registry = await loadJson(registryPath);
   if (!registry || typeof registry !== 'object' || !Array.isArray(registry.protocols)) {
