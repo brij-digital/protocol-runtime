@@ -31,7 +31,7 @@
     "operations": {
       "type": "object",
       "additionalProperties": {
-        "$ref": "#/$defs/actionSpec"
+        "$ref": "#/$defs/operationUiSpec"
       }
     },
     "apps": {
@@ -93,15 +93,9 @@
         }
       ]
     },
-    "actionInputSpec": {
+    "operationInputUiSpec": {
       "type": "object",
-      "required": [
-        "type"
-      ],
       "properties": {
-        "type": {
-          "type": "string"
-        },
         "label": {
           "type": "string"
         },
@@ -117,18 +111,6 @@
         "display_order": {
           "type": "number"
         },
-        "required": {
-          "type": "boolean"
-        },
-        "default": {},
-        "read_from": {
-          "type": "string",
-          "minLength": 1
-        },
-        "validate": {
-          "type": "object",
-          "additionalProperties": true
-        },
         "ui_mode": {
           "type": "string",
           "enum": [
@@ -138,94 +120,22 @@
           ]
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
-    "actionSpec": {
+    "operationUiSpec": {
       "type": "object",
       "properties": {
         "label": {
           "type": "string"
         },
-        "instruction": {
-          "type": "string"
-        },
         "inputs": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/$defs/actionInputSpec"
+            "$ref": "#/$defs/operationInputUiSpec"
           }
-        },
-        "discover": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "derive": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "compute": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "args": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "accounts": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "remaining_accounts": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "read_output": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "view": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "pre": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "post": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "use": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "validate": {
-          "type": "object",
-          "additionalProperties": true
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "templateSpec": {
       "type": "object",

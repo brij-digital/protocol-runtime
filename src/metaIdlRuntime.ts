@@ -71,6 +71,7 @@ type ActionInputSpec = {
   type: string;
   required?: boolean;
   default?: unknown;
+  bind_from?: string;
   read_from?: string;
   ui_mode?: 'edit' | 'readonly' | 'hidden';
   label?: string;
@@ -309,7 +310,7 @@ type ResolverContext = {
   scope: Record<string, unknown>;
 };
 
-type PreparedMetaInstruction = {
+export type PreparedMetaInstruction = {
   protocolId: string;
   instructionName: string;
   args: Record<string, unknown>;
@@ -320,7 +321,7 @@ type PreparedMetaInstruction = {
   postInstructions: PreparedPostInstruction[];
 };
 
-type PreparedMetaOperation = {
+export type PreparedMetaOperation = {
   protocolId: string;
   operationId: string;
   instructionName: string | null;
@@ -401,6 +402,7 @@ export type MetaOperationSummary = {
       type: string;
       required: boolean;
       default?: unknown;
+      bind_from?: string;
       read_from?: string;
       read_stage?: 'discover' | 'derive' | 'compute' | 'input' | 'unknown';
       ui_mode?: 'edit' | 'readonly' | 'hidden';
@@ -1102,10 +1104,20 @@ function materializeOperation(operationId: string, operation: ActionSpec, meta: 
   mergeActionFragment(materialized, actionDirectFragment, `operation ${operationId}`);
 
   for (const [inputName, inputSpec] of Object.entries(materialized.inputs ?? {})) {
-    if (inputSpec.read_from !== undefined) {
-      if (typeof inputSpec.read_from !== 'string' || inputSpec.read_from.trim().length === 0) {
+    const bindFrom =
+      typeof inputSpec.bind_from === 'string' && inputSpec.bind_from.trim().length > 0
+        ? inputSpec.bind_from.trim()
+        : typeof inputSpec.read_from === 'string' && inputSpec.read_from.trim().length > 0
+          ? inputSpec.read_from.trim()
+          : undefined;
+    if (bindFrom !== undefined) {
+      inputSpec.bind_from = bindFrom;
+      delete inputSpec.read_from;
+    }
+    if (inputSpec.bind_from !== undefined) {
+      if (typeof inputSpec.bind_from !== 'string' || inputSpec.bind_from.trim().length === 0) {
         throw new Error(
-          `Operation ${operationId} input ${inputName}: read_from must be a non-empty string when provided.`,
+          `Operation ${operationId} input ${inputName}: bind_from must be a non-empty string when provided.`,
         );
       }
     }
@@ -1824,8 +1836,10 @@ export async function listMetaOperations(options: {
             type: spec.type,
             required: spec.required !== false,
             ...(spec.default !== undefined ? { default: cloneJsonLike(spec.default) } : {}),
+            ...(spec.bind_from ? { bind_from: spec.bind_from } : {}),
             ...(spec.read_from ? { read_from: spec.read_from } : {}),
-            ...(spec.read_from ? { read_stage: resolveDiscoverStage(spec.read_from, operation) } : {}),
+            ...(spec.bind_from ? { read_stage: resolveDiscoverStage(spec.bind_from, operation) } : {}),
+            ...(spec.read_from && !spec.bind_from ? { read_stage: resolveDiscoverStage(spec.read_from, operation) } : {}),
             ...(typeof spec.ui_mode === 'string' ? { ui_mode: spec.ui_mode } : {}),
             ...(typeof spec.label === 'string' && spec.label.trim().length > 0 ? { label: spec.label.trim() } : {}),
             ...(typeof spec.placeholder === 'string' && spec.placeholder.trim().length > 0

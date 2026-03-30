@@ -1,4 +1,5 @@
 const PROTOCOL_URL_RE = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
+const IDL_CACHE_BUST_VERSION = 'runtime-0.1.20';
 
 function normalizeBaseUrl(baseRaw: string | undefined): string {
   const trimmed = (baseRaw ?? '/').trim();
@@ -10,22 +11,30 @@ function normalizeBaseUrl(baseRaw: string | undefined): string {
 }
 
 export function resolveAppUrl(url: string): string {
+  const withCacheBust = (resolved: string): string => {
+    if (!resolved.includes('/idl/') || !resolved.endsWith('.json')) {
+      return resolved;
+    }
+    const separator = resolved.includes('?') ? '&' : '?';
+    return `${resolved}${separator}v=${IDL_CACHE_BUST_VERSION}`;
+  };
+
   if (PROTOCOL_URL_RE.test(url) || url.startsWith('//')) {
-    return url;
+    return withCacheBust(url);
   }
 
   const base = normalizeBaseUrl(import.meta.env.BASE_URL);
 
   if (url.startsWith('/')) {
     if (base === '/') {
-      return url;
+      return withCacheBust(url);
     }
-    return `${base.slice(0, -1)}${url}`;
+    return withCacheBust(`${base.slice(0, -1)}${url}`);
   }
 
   const cleaned = url.replace(/^\.\//, '');
   if (base === '/') {
-    return `/${cleaned}`;
+    return withCacheBust(`/${cleaned}`);
   }
-  return `${base}${cleaned}`;
+  return withCacheBust(`${base}${cleaned}`);
 }
