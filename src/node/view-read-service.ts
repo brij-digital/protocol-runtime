@@ -42,11 +42,6 @@ type DiscoverQueryStep = {
   select: Record<string, unknown>;
 };
 
-type TemplateUse = {
-  template: string;
-  with?: Record<string, string>;
-};
-
 type OperationInputDef = {
   type: string;
   required?: boolean;
@@ -57,10 +52,6 @@ type ReadOutputDef = {
   type: string;
   source: string;
   max_items?: number;
-};
-
-type LegacyViewDef = {
-  entity_keys?: string[];
 };
 
 type ViewFilterCondition = {
@@ -137,19 +128,12 @@ type AccountViewDef = {
   description?: string;
 };
 
-type ViewDef = LegacyViewDef | SearchViewDef | AccountViewDef;
+type ViewDef = SearchViewDef | AccountViewDef;
 
 type OperationDef = {
   inputs?: Record<string, OperationInputDef>;
-  use?: TemplateUse[];
   view?: ViewDef;
   read_output?: ReadOutputDef;
-};
-
-type TemplateDef = {
-  expand?: {
-    discover?: DiscoverQueryStep[];
-  };
 };
 
 type RuntimeDecoderArtifactDef = {
@@ -160,7 +144,6 @@ type MetaPack = {
   protocolId: string;
   decoderArtifacts?: Record<string, RuntimeDecoderArtifactDef>;
   operations?: Record<string, OperationDef>;
-  templates?: Record<string, TemplateDef>;
 };
 
 type ListPoolsOptions = {
@@ -231,7 +214,6 @@ type CompiledOperation = {
   accountType: string;
   accountSize: number;
   discriminatorFilter: GetProgramAccountsFilter | null;
-  paramMap: Record<string, string>;
   operationInputDefs: Record<string, OperationInputDef>;
   staticMemcmpFilters: DiscoverMemcmpClause[];
   indexedFilterGroups: DiscoverMemcmpClause[][];
@@ -458,35 +440,6 @@ function inferPairParamsFromInputs(operationInputDefs: Record<string, OperationI
   return [null, null];
 }
 
-function inferPairParams(
-  step: DiscoverQueryStep,
-  operationInputDefs: Record<string, OperationInputDef>,
-): [string | null, string | null] {
-  const direct = inferPairParamsFromInputs(operationInputDefs);
-  if (direct[0] && direct[1]) {
-    return direct;
-  }
-  const params = new Set<string>();
-  const groups = step.or_filters ?? [];
-  for (const group of groups) {
-    for (const condition of group) {
-      const ref = condition.memcmp.bytesFrom;
-      if (typeof ref !== 'string') {
-        continue;
-      }
-      if (ref.startsWith('$param.')) {
-        params.add(ref.slice('$param.'.length));
-      }
-    }
-  }
-  const values = Array.from(params);
-  if (values.length >= 2) {
-    return [values[0] ?? null, values[1] ?? null];
-  }
-
-  return [null, null];
-}
-
 function inferPairParamsFromView(
   operationInputDefs: Record<string, OperationInputDef>,
   filterSpec: ViewFilterGroup | null | undefined,
@@ -532,19 +485,6 @@ function isSearchViewDef(view: ViewDef | undefined): view is SearchViewDef {
 
 function isAccountViewDef(view: ViewDef | undefined): view is AccountViewDef {
   return !!view && typeof view === 'object' && 'kind' in view && view.kind === 'account';
-}
-
-function legacyWhereToFilterGroup(whereClauses: DiscoverWhereClause[] | undefined): ViewFilterGroup | null {
-  if (!whereClauses || whereClauses.length === 0) {
-    return null;
-  }
-  return {
-    all: whereClauses.map((clause) => ({
-      field: clause.path,
-      op: clause.op,
-      value: clause.value,
-    })),
-  };
 }
 
 function normalizeIndexedFilterGroups(spec: ViewFilterGroup | undefined | null): DiscoverMemcmpClause[][] {
@@ -600,7 +540,7 @@ function normalizeIndexedFilterGroups(spec: ViewFilterGroup | undefined | null):
 function compileOperation(meta: MetaPack, coder: DirectAccountsCoder, options: AppPackViewReadServiceOptions): CompiledOperation {
   const operation = meta.operations?.[options.operationId];
   if (!operation) {
-    throw new Error(`Operation ${options.operationId} not found in the app operation pack.`);
+    throw new Error(`Operation ${options.operationId} not found in the runtime pack.`);
   }
   const operationInputDefs = operation.inputs ?? {};
 
@@ -633,7 +573,6 @@ function compileOperation(meta: MetaPack, coder: DirectAccountsCoder, options: A
       discriminatorFilter: {
         memcmp: coder.memcmp(accountType),
       },
-      paramMap: {},
       operationInputDefs,
       staticMemcmpFilters: view.bootstrap.filters ?? [],
       indexedFilterGroups: normalizeIndexedFilterGroups(view.query.indexed_filters),
@@ -660,7 +599,6 @@ function compileOperation(meta: MetaPack, coder: DirectAccountsCoder, options: A
       discriminatorFilter: {
         memcmp: coder.memcmp(accountType),
       },
-      paramMap: {},
       operationInputDefs,
       staticMemcmpFilters: [],
       indexedFilterGroups: [],
@@ -670,55 +608,7 @@ function compileOperation(meta: MetaPack, coder: DirectAccountsCoder, options: A
       targetAddress: view.target.address,
     };
   }
-
-  const use = operation.use?.[0];
-  if (!use) {
-    throw new Error(`Operation ${options.operationId} has no template use.`);
-  }
-  const template = meta.templates?.[use.template];
-  const discoverSteps = template?.expand?.discover;
-  if (!discoverSteps || discoverSteps.length === 0) {
-    throw new Error(`Template ${use.template} has no discover steps.`);
-  }
-  const discoverStep = discoverSteps[0];
-  if (!discoverStep) {
-    throw new Error(`Template ${use.template} has an invalid discover step.`);
-  }
-  if (discoverStep.discover !== 'discover.query' || discoverStep.source !== 'rpc.getProgramAccounts') {
-    throw new Error(`Operation ${options.operationId} requires unsupported discover type/source.`);
-  }
-
-  const outputMaxItems = operation.read_output?.max_items ?? discoverStep.limit ?? 20;
-  const [pairParamA, pairParamB] = inferPairParams(discoverStep, operationInputDefs);
-
-  return {
-    protocolId: meta.protocolId,
-    namespace: `${meta.protocolId}.${options.operationId}`,
-    mode: 'search',
-    defaultLimit: discoverStep.limit ?? 20,
-    outputMaxItems,
-    pairParamA,
-    pairParamB,
-    programId: parsePublicKey(options.programId, 'programId'),
-    accountType: discoverStep.account_type,
-    accountSize: coder.size(discoverStep.account_type),
-    discriminatorFilter:
-      discoverStep.discriminator_filter === false
-        ? null
-        : {
-            memcmp: coder.memcmp(discoverStep.account_type),
-          },
-    paramMap: use.with ?? {},
-    operationInputDefs,
-    staticMemcmpFilters: [],
-    indexedFilterGroups: discoverStep.or_filters ?? [],
-    decodedFilterSpec: legacyWhereToFilterGroup(discoverStep.where),
-    sortClauses: (discoverStep.sort ?? []).map((clause) => ({
-      field: clause.path,
-      dir: clause.dir,
-    })),
-    select: discoverStep.select,
-  };
+  throw new Error(`Operation ${options.operationId} must declare a runtime view of kind search or account.`);
 }
 
 export class AppPackViewReadService {
@@ -839,9 +729,8 @@ export class AppPackViewReadService {
 
   async runRead(options: ListPoolsOptions): Promise<ReadResult> {
     const resolvedInput = this.resolveOperationInput(options.input);
-    const resolvedParams = this.resolveTemplateParams(resolvedInput);
     if (this.compiled.mode === 'account') {
-      return this.runAccountRead(resolvedParams);
+      return this.runAccountRead(resolvedInput);
     }
     const effectiveLimit = Math.max(1, Math.min(options.limit, this.compiled.outputMaxItems));
     const cacheKey = this.makeCacheKey(resolvedInput, effectiveLimit);
@@ -855,7 +744,7 @@ export class AppPackViewReadService {
     }
 
     if (this.pool) {
-      const dbValue = await this.fetchFromAccountCache(resolvedParams, effectiveLimit);
+      const dbValue = await this.fetchFromAccountCache(resolvedInput, effectiveLimit);
       if (dbValue) {
         this.cache.set(cacheKey, {
           expiresAtMs: dbValue.generatedAtMs + this.cacheTtlMs,
@@ -1061,22 +950,6 @@ export class AppPackViewReadService {
       resolved[this.compiled.pairParamB] = parsePublicKey(String(resolved[this.compiled.pairParamB]), this.compiled.pairParamB).toBase58();
     }
     return resolved;
-  }
-
-  private resolveTemplateParams(input: Record<string, unknown>): Record<string, unknown> {
-    const params: Record<string, unknown> = {};
-    for (const [paramName, expression] of Object.entries(this.compiled.paramMap)) {
-      const resolved = resolveReference(expression, { input });
-      if (resolved !== undefined) {
-        params[paramName] = resolved;
-      }
-    }
-    for (const [key, value] of Object.entries(input)) {
-      if (!(key in params)) {
-        params[key] = value;
-      }
-    }
-    return params;
   }
 
   private async runAccountRead(params: Record<string, unknown>): Promise<ReadResult> {

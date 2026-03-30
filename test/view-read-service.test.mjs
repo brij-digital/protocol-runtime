@@ -73,98 +73,8 @@ const CODAMA = {
   },
 };
 
-const META = {
-  schema: 'meta-idl.v0.6',
-  protocolId: 'orca-whirlpool-mainnet',
-  decoderArtifacts: {
-    default: {
-      kind: 'generated_idl_decoder',
-      family: 'codama',
-      artifact: 'default',
-      codamaPath: '/idl/orca_whirlpool.codama.json',
-    },
-  },
-  templates: {
-    'orca.list_pools.v1': {
-      params: {
-        token_in_mint: { type: 'pubkey' },
-        token_out_mint: { type: 'pubkey' },
-      },
-      expand: {
-        discover: [
-          {
-            name: 'pool_candidates',
-            discover: 'discover.query',
-            source: 'rpc.getProgramAccounts',
-            program_id: '$protocol.programId',
-            account_type: 'Whirlpool',
-            commitment: 'confirmed',
-            or_filters: [
-              [
-                { memcmp: { offset: 8, bytesFrom: '$param.token_in_mint' } },
-                { memcmp: { offset: 40, bytesFrom: '$param.token_out_mint' } },
-              ],
-              [
-                { memcmp: { offset: 8, bytesFrom: '$param.token_out_mint' } },
-                { memcmp: { offset: 40, bytesFrom: '$param.token_in_mint' } },
-              ],
-            ],
-            where: [
-              {
-                path: 'decoded.liquidity',
-                op: '>',
-                value: '0',
-              },
-            ],
-            sort: [
-              {
-                path: 'decoded.liquidity',
-                dir: 'desc',
-              },
-            ],
-            limit: 20,
-            select: {
-              whirlpool: '$account.pubkey',
-              tokenMintA: '$decoded.token_mint_a',
-              tokenMintB: '$decoded.token_mint_b',
-              tickSpacing: '$decoded.tick_spacing',
-              liquidity: '$decoded.liquidity',
-            },
-          },
-        ],
-      },
-    },
-  },
-  operations: {
-    list_pools: {
-      inputs: {
-        token_in_mint: { type: 'pubkey', required: true },
-        token_out_mint: { type: 'pubkey', required: true },
-        min_last_seen_slot: { type: 'u64', required: false, default: '0' },
-      },
-      use: [
-        {
-          template: 'orca.list_pools.v1',
-          with: {
-            token_in_mint: '$input.token_in_mint',
-            token_out_mint: '$input.token_out_mint',
-          },
-        },
-      ],
-      read_output: {
-        type: 'array',
-        source: '$derived.pool_candidates',
-        max_items: 20,
-      },
-      view: {
-        entity_keys: ['whirlpool'],
-      },
-    },
-  },
-};
-
-const META_V2 = {
-  schema: 'meta-idl.v0.6',
+const RUNTIME = {
+  schema: 'declarative-decoder-runtime.v1',
   protocolId: 'orca-whirlpool-mainnet',
   decoderArtifacts: {
     default: {
@@ -257,8 +167,8 @@ async function writeTempRuntimeWithCodama(prefix, runtimeValue, codamaValue) {
   return runtimePath;
 }
 
-test('runRead queries cached_program_accounts via binary memcmp and returns sorted selected rows', async () => {
-  const metaPath = await writeTempRuntimeWithCodama('meta', META, CODAMA);
+test('runRead queries cached_program_accounts via runtime search view and returns sorted selected rows', async () => {
+  const metaPath = await writeTempRuntimeWithCodama('runtime', RUNTIME, CODAMA);
   const coder = new DirectAccountsCoder(IDL);
 
   const dataA = await coder.encode('Whirlpool', {
@@ -340,82 +250,8 @@ test('runRead queries cached_program_accounts via binary memcmp and returns sort
   await service.close();
 });
 
-test('runRead supports view v0.2 search shape with indexed_filters and decoded filters', async () => {
-  const metaPath = await writeTempRuntimeWithCodama('meta-v2', META_V2, CODAMA);
-  const coder = new DirectAccountsCoder(IDL);
-
-  const dataA = await coder.encode('Whirlpool', {
-    token_mint_a: new PublicKey(MINT_USDC),
-    token_mint_b: new PublicKey(MINT_SOL),
-    tick_spacing: 4,
-    liquidity: new BN('1000000'),
-  });
-  const dataB = await coder.encode('Whirlpool', {
-    token_mint_a: new PublicKey(MINT_SOL),
-    token_mint_b: new PublicKey(MINT_USDC),
-    tick_spacing: 16,
-    liquidity: new BN('2000000'),
-  });
-
-  const capturedQueries = [];
-  const pool = {
-    async query(sql, params) {
-      capturedQueries.push({ sql: String(sql), params: params ?? [] });
-      if (String(sql).includes('FROM cached_program_accounts')) {
-        return {
-          rows: [
-            {
-              pubkey: 'Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE',
-              slot: '202532154',
-              data_bytes: Buffer.from(dataA),
-            },
-            {
-              pubkey: '2sZ7dw8Nfqn8mQ9QGp2PzFpvx9TLtCrzkx5hDfSE9iJY',
-              slot: '202532160',
-              data_bytes: Buffer.from(dataB),
-            },
-          ],
-          rowCount: 2,
-        };
-      }
-      return { rows: [], rowCount: 0 };
-    },
-    async end() {},
-  };
-
-  const service = new AppPackViewReadService({
-    connection: new Connection('http://127.0.0.1:8899', 'confirmed'),
-    databaseUrl: null,
-    poolOverride: pool,
-    cacheTtlMs: 1000,
-    protocolId: 'orca-whirlpool-mainnet',
-    runtimePath: metaPath,
-    programId: PROGRAM_ID,
-    operationId: 'list_pools',
-  });
-
-  const result = await service.runRead({
-    input: {
-      token_in_mint: MINT_USDC,
-      token_out_mint: MINT_SOL,
-    },
-    limit: 20,
-  });
-
-  assert.equal(result.items.length, 2);
-  assert.equal(result.items[0].liquidity, '2000000');
-  const memcmpQuery = capturedQueries.find((entry) => entry.sql.includes('FROM cached_program_accounts'));
-  assert.ok(memcmpQuery, 'expected query against cached_program_accounts');
-  assert.ok(memcmpQuery.sql.includes(' OR '));
-  const serializedParams = JSON.stringify(memcmpQuery.params);
-  assert.ok(serializedParams.includes(new PublicKey(MINT_USDC).toBuffer().toString('hex')));
-  assert.ok(serializedParams.includes(new PublicKey(MINT_SOL).toBuffer().toString('hex')));
-
-  await service.close();
-});
-
-test('syncFullToDatabase bootstraps cached_program_accounts for view v0.2 search', async () => {
-  const metaPath = await writeTempRuntimeWithCodama('meta-bootstrap', META_V2, CODAMA);
+test('syncFullToDatabase bootstraps cached_program_accounts for runtime search views', async () => {
+  const metaPath = await writeTempRuntimeWithCodama('runtime-bootstrap', RUNTIME, CODAMA);
   const coder = new DirectAccountsCoder(IDL);
   const data = await coder.encode('Whirlpool', {
     token_mint_a: new PublicKey(MINT_USDC),
