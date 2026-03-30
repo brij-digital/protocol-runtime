@@ -13,7 +13,7 @@ import {
   loadRegistry,
   type ProtocolManifest,
 } from './idlRegistry.js';
-import { loadProtocolCodecIdl } from './runtimeCodecPlan.js';
+import { loadProtocolAnchorIdlFromCodama } from './codamaAnchor.js';
 
 const { BN, BorshAccountsCoder, BorshInstructionCoder } = anchorPkg;
 
@@ -322,7 +322,7 @@ async function loadProtocolAndIdl(protocolId: string): Promise<{ protocol: Proto
     };
   }
 
-  const parsed = await loadProtocolCodecIdl(protocolId);
+  const parsed = await loadProtocolAnchorIdlFromCodama(protocolId);
   idlCache.set(protocol.id, parsed);
 
   return {

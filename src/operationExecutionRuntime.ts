@@ -7,7 +7,7 @@ import { getProtocolById } from './idlRegistry.js';
 import { previewIdlInstruction } from './idlDeclarativeRuntime.js';
 import { runRegisteredComputeStep } from './metaComputeRegistry.js';
 import { runRegisteredDiscoverStep } from './metaDiscoverRegistry.js';
-import { loadProtocolCodecIdl } from './runtimeCodecPlan.js';
+import { loadProtocolAnchorIdlFromCodama } from './codamaAnchor.js';
 import {
   type MaterializedRuntimeOperation,
   type RuntimeOperationExplain,
@@ -346,7 +346,7 @@ async function loadProtocolIdl(protocolId: string): Promise<Idl> {
   if (cached) {
     return cached;
   }
-  const parsed = await loadProtocolCodecIdl(protocolId);
+  const parsed = await loadProtocolAnchorIdlFromCodama(protocolId);
   idlCache.set(protocolId, parsed);
   return parsed;
 }

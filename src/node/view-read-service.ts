@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { BorshAccountsCoder, type Idl } from '@coral-xyz/anchor';
 import { Connection, PublicKey, type Commitment, type GetProgramAccountsFilter } from '@solana/web3.js';
+import { compileCodamaToAnchorIdl } from '../codamaAnchor.js';
 import { Pool } from 'pg';
 
 type SortDirection = 'asc' | 'desc';
@@ -151,8 +152,13 @@ type TemplateDef = {
   };
 };
 
+type RuntimeDecoderArtifactDef = {
+  codamaPath?: string;
+};
+
 type MetaPack = {
   protocolId: string;
+  decoderArtifacts?: Record<string, RuntimeDecoderArtifactDef>;
   operations?: Record<string, OperationDef>;
   templates?: Record<string, TemplateDef>;
 };
@@ -194,17 +200,9 @@ type AppPackViewReadServiceOptions = {
   poolOverride?: Pool | null;
   cacheTtlMs: number;
   runtimePath: string;
-  codecPlanPath?: string;
   programId: string;
   protocolId: string;
   operationId: string;
-};
-
-type RuntimeCodecPlanDocument = {
-  protocols?: Array<{
-    protocolId?: string;
-    artifacts?: Record<string, { anchorIdl?: Idl }>;
-  }>;
 };
 
 type DecodedAccountContext = {
@@ -257,24 +255,23 @@ function parseOperationPack(runtimePath: string): MetaPack {
   return JSON.parse(fs.readFileSync(runtimePath, 'utf8')) as MetaPack;
 }
 
-function parseCodecPlanIdl(codecPlanPath: string, protocolId: string): Idl {
-  const parsed = JSON.parse(fs.readFileSync(codecPlanPath, 'utf8')) as RuntimeCodecPlanDocument;
-  const protocol = parsed.protocols?.find((entry) => entry.protocolId === protocolId);
-  if (!protocol) {
-    throw new Error(`runtime-codec-plan is missing protocol ${protocolId}.`);
-  }
-  const artifactEntries = Object.entries(protocol.artifacts ?? {});
+function parseRuntimeCodamaIdl(runtimePath: string, protocolId: string): Idl {
+  const runtime = parseOperationPack(runtimePath);
+  const artifactEntries = Object.entries(runtime.decoderArtifacts ?? {});
   if (artifactEntries.length === 0) {
-    throw new Error(`runtime-codec-plan protocol ${protocolId} has no artifacts.`);
+    throw new Error(`runtime ${runtimePath} declares no decoder artifacts for ${protocolId}.`);
   }
   if (artifactEntries.length > 1) {
-    throw new Error(`runtime-codec-plan protocol ${protocolId} has multiple artifacts; view-read-service requires a single codec artifact.`);
+    throw new Error(`runtime ${runtimePath} declares multiple decoder artifacts for ${protocolId}; view-read-service requires a single codec artifact.`);
   }
-  const idl = artifactEntries[0]?.[1]?.anchorIdl;
-  if (!idl) {
-    throw new Error(`runtime-codec-plan protocol ${protocolId} is missing anchorIdl.`);
+  const artifact = artifactEntries[0]?.[1] as RuntimeDecoderArtifactDef | undefined;
+  const codamaPath = typeof artifact?.codamaPath === 'string' ? artifact.codamaPath : null;
+  if (!codamaPath || !codamaPath.startsWith('/idl/')) {
+    throw new Error(`runtime ${runtimePath} is missing a valid decoderArtifacts codamaPath for ${protocolId}.`);
   }
-  return idl;
+  const codamaFilePath = path.join(path.dirname(runtimePath), codamaPath.slice('/idl/'.length));
+  const codama = JSON.parse(fs.readFileSync(codamaFilePath, 'utf8'));
+  return compileCodamaToAnchorIdl(codama);
 }
 
 function parsePublicKey(value: string, name: string): PublicKey {
@@ -747,13 +744,8 @@ export class AppPackViewReadService {
     }
 
     const runtimePath = options.runtimePath;
-    const codecPlanPath = options.codecPlanPath;
-    if (!codecPlanPath) {
-      throw new Error('AppPackViewReadService requires codecPlanPath.');
-    }
-
     const meta = parseOperationPack(path.resolve(runtimePath));
-    const idl = parseCodecPlanIdl(path.resolve(codecPlanPath), options.protocolId);
+    const idl = parseRuntimeCodamaIdl(path.resolve(runtimePath), options.protocolId);
     this.coder = new BorshAccountsCoder(idl);
     this.compiled = compileOperation(meta, this.coder, options);
   }
