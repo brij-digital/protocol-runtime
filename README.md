@@ -71,9 +71,6 @@ For indexing/runtime ownership, the intended split is:
 - `Codama IDL`: declarative protocol description and protocol source of truth
 - `declarative runtime spec`: declarative indexing contract
 
-For migrated protocols, `idlPath` is compatibility-only.
-Active execution should resolve any required codec IDL from `runtimeSpec.decoderArtifacts.*.codecIdlPath` instead of treating `registry.idlPath` as structural truth.
-
 ## Exports
 
 - `@brij-digital/apppack-runtime`
@@ -101,6 +98,7 @@ npm run test
 - `src/idlDeclarativeRuntime.ts`
 - `src/metaDiscoverRegistry.ts`
 - `src/metaComputeRegistry.ts`
+- `src/runtimeCodecPlan.ts`
 - `src/node/view-read-service.ts`
 
 ## Versioning Notes

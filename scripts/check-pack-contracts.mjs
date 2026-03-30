@@ -53,7 +53,11 @@ async function main() {
       fail('Registry protocol entry is missing id.');
     }
     const isActive = protocol.status !== 'inactive';
-    for (const key of ['idlPath', 'codamaIdlPath', 'runtimeSpecPath']) {
+    if (protocol.idlPath != null) {
+      fail(`Protocol ${protocol.id} still declares legacy idlPath.`);
+    }
+
+    for (const key of ['codamaIdlPath', 'runtimeSpecPath']) {
       const value = protocol[key];
       if (value == null) {
         continue;
@@ -104,10 +108,6 @@ async function main() {
     if (isActive && protocol.runtimeSpecPath == null) {
       fail(`Protocol ${protocol.id} is active but has no runtimeSpecPath; active pack contracts must be runtime-backed.`);
     }
-    if (isActive && protocol.idlPath != null) {
-      fail(`Protocol ${protocol.id} is active but still declares legacy idlPath.`);
-    }
-
     if (protocol.appPath != null) {
       fail(`Protocol ${protocol.id} still declares appPath; active pack contracts are codama/runtime only.`);
     }
