@@ -133,6 +133,7 @@ type ViewDef = SearchViewDef | AccountViewDef;
 type OperationDef = {
   inputs?: Record<string, OperationInputDef>;
   contract_view?: ViewDef;
+  index_view?: (ViewDef & { source_kind?: string; sync_disabled?: boolean });
   read_output?: ReadOutputDef;
 };
 
@@ -542,9 +543,13 @@ function compileOperation(meta: MetaPack, coder: DirectAccountsCoder, options: A
     throw new Error(`Operation ${options.operationId} not found in the runtime pack.`);
   }
   const operationInputDefs = operation.inputs ?? {};
+  const indexedAccountChangesView =
+    operation.index_view && operation.index_view.source_kind === 'account_changes'
+      ? operation.index_view
+      : undefined;
 
-  if (isSearchViewDef(operation.contract_view)) {
-    const view = operation.contract_view;
+  if (isSearchViewDef(indexedAccountChangesView)) {
+    const view = indexedAccountChangesView;
     if (view.bootstrap.kind !== 'scan_accounts' || view.bootstrap.source !== 'rpc.getProgramAccounts') {
       throw new Error(`Operation ${options.operationId} requires unsupported search bootstrap source.`);
     }
@@ -607,7 +612,7 @@ function compileOperation(meta: MetaPack, coder: DirectAccountsCoder, options: A
       targetAddress: view.target.address,
     };
   }
-  throw new Error(`Operation ${options.operationId} must declare a contract_view of kind search or account.`);
+  throw new Error(`Operation ${options.operationId} must declare a targeted contract_view account or an account_changes-backed index_view.`);
 }
 
 export class AppPackViewReadService {

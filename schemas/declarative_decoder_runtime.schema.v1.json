@@ -610,7 +610,7 @@
       "properties": {
         "kind": {
           "type": "string",
-          "enum": ["search", "account"]
+          "enum": ["account"]
         },
         "source_kind": { "type": "string" },
         "freshness": { "type": "object", "additionalProperties": true },
@@ -627,7 +627,7 @@
     },
     "indexViewSpec": {
       "type": "object",
-      "required": ["kind", "canonical", "projection"],
+      "required": ["kind"],
       "properties": {
         "kind": {
           "type": "string",
@@ -638,6 +638,12 @@
         "entity_type": { "type": "string" },
         "title": { "type": "string" },
         "description": { "type": "string" },
+        "sync_disabled": { "type": "boolean" },
+        "bootstrap": { "type": "object", "additionalProperties": true },
+        "refresh": { "type": "object", "additionalProperties": true },
+        "query": { "type": "object", "additionalProperties": true },
+        "target": { "type": "object", "additionalProperties": true },
+        "select": { "type": "object", "additionalProperties": true },
         "canonical": {
           "$ref": "#/$defs/canonicalViewSpec"
         },
@@ -645,7 +651,33 @@
           "$ref": "#/$defs/viewProjectionSpec"
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source_kind": { "const": "account_changes" }
+            },
+            "required": ["source_kind"]
+          },
+          "then": {
+            "required": ["bootstrap", "query"]
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "source_kind": { "const": "account_changes" }
+              },
+              "required": ["source_kind"]
+            }
+          },
+          "then": {
+            "required": ["canonical", "projection"]
+          }
+        }
+      ]
     },
     "operationSpec": {
       "type": "object",

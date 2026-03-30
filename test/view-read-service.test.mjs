@@ -67,9 +67,9 @@ const RUNTIME = {
         source: '$derived.items',
         max_items: 20,
       },
-      contract_view: {
+      index_view: {
         kind: 'search',
-        source: 'indexed',
+        source_kind: 'account_changes',
         entity_type: 'whirlpool_pool',
         bootstrap: {
           kind: 'scan_accounts',
