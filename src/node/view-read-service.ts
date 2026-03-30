@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Connection, PublicKey, type Commitment, type GetProgramAccountsFilter } from '@solana/web3.js';
-import { compileCodamaToCodec } from '../codamaIdl.js';
-import { DirectAccountsCoder, type DirectAccountCodec } from '../directAccountsCoder.js';
+import type { CodamaDocument } from '../codamaIdl.js';
+import { DirectAccountsCoder } from '../directAccountsCoder.js';
 import { Pool } from 'pg';
 
 type SortDirection = 'asc' | 'desc';
@@ -237,7 +237,7 @@ function parseOperationPack(runtimePath: string): MetaPack {
   return JSON.parse(fs.readFileSync(runtimePath, 'utf8')) as MetaPack;
 }
 
-function parseRuntimeCodamaCodec(runtimePath: string, protocolId: string): DirectAccountCodec {
+function parseRuntimeCodamaDocument(runtimePath: string, protocolId: string): CodamaDocument {
   const runtime = parseOperationPack(runtimePath);
   const artifactEntries = Object.entries(runtime.decoderArtifacts ?? {});
   if (artifactEntries.length === 0) {
@@ -252,8 +252,7 @@ function parseRuntimeCodamaCodec(runtimePath: string, protocolId: string): Direc
     throw new Error(`runtime ${runtimePath} is missing a valid decoderArtifacts codamaPath for ${protocolId}.`);
   }
   const codamaFilePath = path.join(path.dirname(runtimePath), codamaPath.slice('/idl/'.length));
-  const codama = JSON.parse(fs.readFileSync(codamaFilePath, 'utf8'));
-  return compileCodamaToCodec(codama) as unknown as DirectAccountCodec;
+  return JSON.parse(fs.readFileSync(codamaFilePath, 'utf8')) as CodamaDocument;
 }
 
 function parsePublicKey(value: string, name: string): PublicKey {
@@ -635,8 +634,8 @@ export class AppPackViewReadService {
 
     const runtimePath = options.runtimePath;
     const meta = parseOperationPack(path.resolve(runtimePath));
-    const codec = parseRuntimeCodamaCodec(path.resolve(runtimePath), options.protocolId);
-    this.coder = new DirectAccountsCoder(codec);
+    const codama = parseRuntimeCodamaDocument(path.resolve(runtimePath), options.protocolId);
+    this.coder = new DirectAccountsCoder(codama);
     this.compiled = compileOperation(meta, this.coder, options);
   }
 

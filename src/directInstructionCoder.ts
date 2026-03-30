@@ -1,33 +1,32 @@
 import * as borsh from '@coral-xyz/borsh';
 import { Buffer } from 'node:buffer';
+import { listCodamaInstructions, listCodamaTypeDefs } from './codamaIdl.js';
 import type {
-  CompiledCodecInstruction,
-  CompiledCodecTypeRef,
+  CodamaDocument,
+  CodamaInstructionDef,
+  CodamaTypeDef,
+  CodamaTypeRef,
 } from './codamaIdl.js';
 
 type CodecField = {
   name?: string;
-  type: CompiledCodecTypeRef;
+  type: CodamaTypeRef;
 };
 
 type CodecVariant = {
   name: string;
-  fields?: CodecField[] | CompiledCodecTypeRef[];
+  fields?: CodecField[] | CodamaTypeRef[];
 };
 
 type CodecTypeDef = {
   name: string;
   type:
-    | { kind: 'struct'; fields?: CodecField[] | CompiledCodecTypeRef[] }
+    | { kind: 'struct'; fields?: CodecField[] | CodamaTypeRef[] }
     | { kind: 'enum'; variants: CodecVariant[] }
-    | { kind: 'type'; alias: CompiledCodecTypeRef };
+    | { kind: 'type'; alias: CodamaTypeRef };
 };
-type CodecInstructionDef = Omit<CompiledCodecInstruction, 'args'> & {
-  args?: Array<{ name: string; type: CompiledCodecTypeRef }>;
-};
-export type DirectInstructionCodec = {
-  instructions?: CodecInstructionDef[];
-  types?: CodecTypeDef[];
+type CodecInstructionDef = Omit<CodamaInstructionDef, 'args'> & {
+  args?: Array<{ name: string; type: CodamaTypeRef }>;
 };
 
 type LayoutLike = {
@@ -37,19 +36,19 @@ type LayoutLike = {
 };
 
 function handleDefinedFields<T>(
-  fields: CodecField[] | CompiledCodecTypeRef[] | undefined,
+  fields: CodecField[] | CodamaTypeRef[] | undefined,
   unitCb: () => T,
   namedCb: (fields: CodecField[]) => T,
-  tupleCb: (fields: CompiledCodecTypeRef[]) => T,
+  tupleCb: (fields: CodamaTypeRef[]) => T,
 ): T {
   if (!fields || fields.length === 0) {
     return unitCb();
   }
-  const first = fields[0] as CodecField | CompiledCodecTypeRef;
+  const first = fields[0] as CodecField | CodamaTypeRef;
   if (typeof first === 'object' && first && 'name' in first) {
     return namedCb(fields as CodecField[]);
   }
-  return tupleCb(fields as CompiledCodecTypeRef[]);
+  return tupleCb(fields as CodamaTypeRef[]);
 }
 
 function resolveDefinedName(type: string | { name: string }): string {
@@ -87,7 +86,7 @@ function typeDefLayout(typeDef: CodecTypeDef, types: CodecTypeDef[], name?: stri
   }
 }
 
-function fieldLayout(field: { name?: string; type: CompiledCodecTypeRef }, types: CodecTypeDef[]): LayoutLike {
+function fieldLayout(field: { name?: string; type: CodamaTypeRef }, types: CodecTypeDef[]): LayoutLike {
   const fieldName = field.name;
   switch (field.type) {
     case 'bool':
@@ -156,9 +155,9 @@ function fieldLayout(field: { name?: string; type: CompiledCodecTypeRef }, types
 export class DirectInstructionCoder {
   private readonly instructionLayouts: Map<string, { discriminator: number[]; layout: LayoutLike }>;
 
-  constructor(codec: DirectInstructionCodec) {
-    const instructions = codec.instructions ?? [];
-    const types = codec.types ?? [];
+  constructor(codama: CodamaDocument) {
+    const instructions = listCodamaInstructions(codama) as CodecInstructionDef[];
+    const types = listCodamaTypeDefs(codama) as CodecTypeDef[];
     const layouts = instructions.map((instruction) => [
       instruction.name,
       {

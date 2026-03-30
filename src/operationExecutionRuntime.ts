@@ -7,8 +7,8 @@ import { previewIdlInstruction } from './idlDeclarativeRuntime.js';
 import { runRegisteredComputeStep } from './metaComputeRegistry.js';
 import { runRegisteredDiscoverStep } from './metaDiscoverRegistry.js';
 import {
-  loadProtocolCompiledCodecFromCodama,
-  type CompiledCodec as Idl,
+  loadProtocolCodamaFromRuntime,
+  type CodamaDocument as Idl,
 } from './codamaIdl.js';
 import { DirectAccountsCoder } from './directAccountsCoder.js';
 import {
@@ -347,7 +347,7 @@ async function loadProtocolIdl(protocolId: string): Promise<Idl> {
   if (cached) {
     return cached;
   }
-  const parsed = await loadProtocolCompiledCodecFromCodama(protocolId);
+  const parsed = await loadProtocolCodamaFromRuntime(protocolId);
   idlCache.set(protocolId, parsed);
   return parsed;
 }
@@ -516,7 +516,7 @@ async function runResolver(step: DeriveStep, ctx: ResolverContext): Promise<unkn
     if (!info) {
       throw new Error(`Account not found for decode_account ${step.name}: ${address.toBase58()}`);
     }
-    const coder = new DirectAccountsCoder(ctx.idl as never);
+    const coder = new DirectAccountsCoder(ctx.idl);
     return normalizeRuntimeValue(coder.decode(accountType, info.data));
   }
   if (step.resolver === 'account_owner') {

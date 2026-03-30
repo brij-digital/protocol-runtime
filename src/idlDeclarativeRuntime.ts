@@ -13,8 +13,11 @@ import {
   type ProtocolManifest,
 } from './idlRegistry.js';
 import {
-  loadProtocolCompiledCodecFromCodama,
-  type CompiledCodec as Idl,
+  findCodamaAccountByName,
+  findCodamaInstructionByName,
+  findCodamaTypeDefByName,
+  loadProtocolCodamaFromRuntime,
+  type CodamaDocument as Idl,
 } from './codamaIdl.js';
 import { DirectAccountsCoder } from './directAccountsCoder.js';
 import { DirectInstructionCoder } from './directInstructionCoder.js';
@@ -132,12 +135,7 @@ function toSnakeCaseKey(value: string): string {
 }
 
 function findInstructionByName(idl: Idl, instructionName: string): IdlInstruction {
-  const instructions = (idl.instructions ?? []) as unknown as IdlInstruction[];
-  const normalizedTarget = toSnakeCaseKey(instructionName);
-
-  const instruction =
-    instructions.find((candidate) => candidate.name === instructionName) ??
-    instructions.find((candidate) => toSnakeCaseKey(candidate.name) === normalizedTarget);
+  const instruction = findCodamaInstructionByName(idl, instructionName) as unknown as IdlInstruction | null;
 
   if (!instruction) {
     throw new Error(`Instruction ${instructionName} not found in IDL.`);
@@ -180,14 +178,7 @@ function getArgInputValue(input: Record<string, unknown>, argName: string): unkn
 }
 
 function findDefinedTypeByName(idl: Idl, name: string): IdlTypeDef | null {
-  const candidates = (idl.types ?? []) as unknown as IdlTypeDef[];
-  const normalized = toSnakeCaseKey(name);
-
-  return (
-    candidates.find((candidate) => candidate.name === name) ??
-    candidates.find((candidate) => toSnakeCaseKey(candidate.name) === normalized) ??
-    null
-  );
+  return findCodamaTypeDefByName(idl, name) as unknown as IdlTypeDef | null;
 }
 
 function normalizeValueByIdlType(idl: Idl, type: IdlTypeRef | unknown, value: unknown): unknown {
@@ -325,7 +316,7 @@ async function loadProtocolAndIdl(protocolId: string): Promise<{ protocol: Proto
     };
   }
 
-  const parsed = await loadProtocolCompiledCodecFromCodama(protocolId);
+  const parsed = await loadProtocolCodamaFromRuntime(protocolId);
   idlCache.set(protocol.id, parsed);
 
   return {
@@ -573,11 +564,7 @@ export async function decodeIdlAccount(options: {
 }): Promise<{ accountType: string; address: string; data: unknown }> {
   const { idl } = await loadProtocolAndIdl(options.protocolId);
 
-  const idlAccounts = (idl.accounts ?? []) as unknown as IdlAccountDef[];
-  const requestedType = toSnakeCaseKey(options.accountType);
-  const resolvedAccount =
-    idlAccounts.find((account) => account.name === options.accountType) ??
-    idlAccounts.find((account) => toSnakeCaseKey(account.name) === requestedType);
+  const resolvedAccount = findCodamaAccountByName(idl, options.accountType) as unknown as IdlAccountDef | null;
 
   if (!resolvedAccount) {
     throw new Error(`Account type ${options.accountType} not found in IDL.`);
@@ -589,7 +576,7 @@ export async function decodeIdlAccount(options: {
     throw new Error(`Account ${options.address} not found on-chain.`);
   }
 
-  const coder = new DirectAccountsCoder(idl as never);
+  const coder = new DirectAccountsCoder(idl);
   const decoded = coder.decode(resolvedAccount.name, accountInfo.data);
 
   return {
@@ -621,7 +608,7 @@ async function prepareSignedIdlTransaction(options: {
   const instruction = findInstructionByName(idl, options.instructionName);
 
   const args = buildInstructionArgs(idl, instruction, options.args);
-  const instructionCoder = new DirectInstructionCoder(idl as never);
+  const instructionCoder = new DirectInstructionCoder(idl);
   const encodedData = instructionCoder.encode(instruction.name, args);
   if (!encodedData) {
     throw new Error('Failed to encode instruction from IDL.');
@@ -768,7 +755,7 @@ export async function previewIdlInstruction(options: {
   const instruction = findInstructionByName(idl, options.instructionName);
 
   const args = buildInstructionArgs(idl, instruction, options.args);
-  const instructionCoder = new DirectInstructionCoder(idl as never);
+  const instructionCoder = new DirectInstructionCoder(idl);
   const encodedData = instructionCoder.encode(instruction.name, args);
   if (!encodedData) {
     throw new Error('Failed to encode instruction from IDL.');

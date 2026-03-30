@@ -3,7 +3,7 @@ import { Buffer } from 'buffer';
 import bs58 from 'bs58';
 import { resolveAppUrl } from './appUrl.js';
 import { isBnLike } from './bnLike.js';
-import type { CompiledCodec as Idl } from './codamaIdl.js';
+import { findCodamaAccountByName, type CodamaDocument as Idl } from './codamaIdl.js';
 import { DirectAccountsCoder } from './directAccountsCoder.js';
 
 export type DiscoverStepResolved = {
@@ -399,7 +399,7 @@ function asProgramAccountLike(entry: unknown, label: string): ProgramAccountLike
 }
 
 function idlDiscriminatorFilter(idl: Idl, accountType: string, label: string): GetProgramAccountsFilter {
-  const idlAccount = idl.accounts?.find((entry) => entry.name === accountType);
+  const idlAccount = findCodamaAccountByName(idl, accountType);
   if (!idlAccount || !idlAccount.discriminator || idlAccount.discriminator.length !== 8) {
     throw new Error(`${label}: account_type ${accountType} is missing discriminator in IDL.`);
   }
@@ -712,7 +712,7 @@ async function runDiscoverQuery(step: DiscoverStepResolved, ctx: DiscoverRuntime
     }
   }
 
-  const coder = accountType ? new DirectAccountsCoder(ctx.idl as never) : null;
+  const coder = accountType ? new DirectAccountsCoder(ctx.idl) : null;
   const rows: Array<{
     scope: Record<string, unknown>;
     output: unknown;

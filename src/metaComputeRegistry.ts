@@ -1,5 +1,5 @@
 import { PublicKey, type Connection } from '@solana/web3.js';
-import type { CompiledCodec as Idl } from './codamaIdl.js';
+import type { CodamaDocument as Idl } from './codamaIdl.js';
 
 export type ComputeStepResolved = {
   name: string;

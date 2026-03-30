@@ -1,35 +1,34 @@
 import * as borsh from '@coral-xyz/borsh';
 import bs58 from 'bs58';
 import { Buffer } from 'node:buffer';
+import { listCodamaAccounts, listCodamaTypeDefs } from './codamaIdl.js';
 import type {
-  CompiledCodecAccount,
-  CompiledCodecTypeRef,
+  CodamaAccountDef,
+  CodamaDocument,
+  CodamaTypeRef,
+  CodamaTypeDef,
 } from './codamaIdl.js';
 
 type JsonRecord = Record<string, unknown>;
 
 type CodecField = {
   name?: string;
-  type: CompiledCodecTypeRef;
+  type: CodamaTypeRef;
 };
 
 type CodecVariant = {
   name: string;
-  fields?: CodecField[] | CompiledCodecTypeRef[];
+  fields?: CodecField[] | CodamaTypeRef[];
 };
 
 type CodecTypeDef = {
   name: string;
   type:
-    | { kind: 'struct'; fields?: CodecField[] | CompiledCodecTypeRef[] }
+    | { kind: 'struct'; fields?: CodecField[] | CodamaTypeRef[] }
     | { kind: 'enum'; variants: CodecVariant[] }
-    | { kind: 'type'; alias: CompiledCodecTypeRef };
+    | { kind: 'type'; alias: CodamaTypeRef };
 };
-type CodecAccountDef = CompiledCodecAccount;
-export type DirectAccountCodec = {
-  accounts?: CodecAccountDef[];
-  types?: CodecTypeDef[];
-};
+type CodecAccountDef = CodamaAccountDef;
 
 type LayoutLike = {
   encode(src: unknown, buffer: Buffer, offset?: number): number;
@@ -60,19 +59,19 @@ function asString(value: unknown, label: string): string {
 }
 
 function handleDefinedFields<T>(
-  fields: CodecField[] | CompiledCodecTypeRef[] | undefined,
+  fields: CodecField[] | CodamaTypeRef[] | undefined,
   unitCb: () => T,
   namedCb: (fields: CodecField[]) => T,
-  tupleCb: (fields: CompiledCodecTypeRef[]) => T,
+  tupleCb: (fields: CodamaTypeRef[]) => T,
 ): T {
   if (!fields || fields.length === 0) {
     return unitCb();
   }
-  const first = fields[0] as CodecField | CompiledCodecTypeRef;
+  const first = fields[0] as CodecField | CodamaTypeRef;
   if (typeof first === 'object' && first && 'name' in first) {
     return namedCb(fields as CodecField[]);
   }
-  return tupleCb(fields as CompiledCodecTypeRef[]);
+  return tupleCb(fields as CodamaTypeRef[]);
 }
 
 function resolveDefinedName(type: string | { name: string }): string {
@@ -110,7 +109,7 @@ function typeDefLayout(typeDef: CodecTypeDef, types: CodecTypeDef[], name?: stri
   }
 }
 
-function fieldLayout(field: { name?: string; type: CompiledCodecTypeRef }, types: CodecTypeDef[]): LayoutLike {
+function fieldLayout(field: { name?: string; type: CodamaTypeRef }, types: CodecTypeDef[]): LayoutLike {
   const fieldName = field.name;
   switch (field.type) {
     case 'bool':
@@ -176,7 +175,7 @@ function fieldLayout(field: { name?: string; type: CompiledCodecTypeRef }, types
   }
 }
 
-function typeSize(type: CompiledCodecTypeRef, codec: DirectAccountCodec): number {
+function typeSize(type: CodamaTypeRef, accounts: CodecAccountDef[], types: CodecTypeDef[]): number {
   switch (type) {
     case 'bool':
     case 'u8':
@@ -208,18 +207,18 @@ function typeSize(type: CompiledCodecTypeRef, codec: DirectAccountCodec): number
     default: {
       if (typeof type === 'object' && type) {
         if ('option' in type) {
-          return 1 + typeSize(type.option, codec);
+          return 1 + typeSize(type.option, accounts, types);
         }
         if ('vec' in type) {
           return 1;
         }
         if ('array' in type) {
           const [innerType, length] = type.array;
-          return typeSize(innerType, codec) * length;
+          return typeSize(innerType, accounts, types) * length;
         }
         if ('defined' in type) {
           const definedName = resolveDefinedName(type.defined);
-          const typeDef = (codec.types ?? []).find((entry) => entry.name === definedName);
+          const typeDef = types.find((entry) => entry.name === definedName);
           if (!typeDef) {
             throw new Error(`Type not found: ${definedName}`);
           }
@@ -228,22 +227,22 @@ function typeSize(type: CompiledCodecTypeRef, codec: DirectAccountCodec): number
               return handleDefinedFields(
                 typeDef.type.fields,
                 () => 0,
-                (fields) => fields.reduce((sum, field) => sum + typeSize(field.type, codec), 0),
-                (fields) => fields.reduce((sum, field) => sum + typeSize(field, codec), 0),
+                (fields) => fields.reduce((sum, field) => sum + typeSize(field.type, accounts, types), 0),
+                (fields) => fields.reduce((sum, field) => sum + typeSize(field, accounts, types), 0),
               );
             case 'enum': {
               const variantSizes = typeDef.type.variants.map((variant) =>
                 handleDefinedFields(
                   variant.fields,
                   () => 0,
-                  (fields) => fields.reduce((sum, field) => sum + typeSize(field.type, codec), 0),
-                  (fields) => fields.reduce((sum, field) => sum + typeSize(field, codec), 0),
+                  (fields) => fields.reduce((sum, field) => sum + typeSize(field.type, accounts, types), 0),
+                  (fields) => fields.reduce((sum, field) => sum + typeSize(field, accounts, types), 0),
                 ),
               );
               return 1 + Math.max(0, ...variantSizes);
             }
             case 'type':
-              return typeSize(typeDef.type.alias, codec);
+              return typeSize(typeDef.type.alias, accounts, types);
             default:
               throw new Error('Unsupported type kind.');
           }
@@ -255,13 +254,15 @@ function typeSize(type: CompiledCodecTypeRef, codec: DirectAccountCodec): number
 }
 
 export class DirectAccountsCoder {
-  private readonly codec: DirectAccountCodec;
+  private readonly accounts: CodecAccountDef[];
+  private readonly types: CodecTypeDef[];
   private readonly accountLayouts: Map<string, { discriminator: number[]; layout: LayoutLike }>;
 
-  constructor(codec: DirectAccountCodec) {
-    this.codec = codec;
-    const accounts = codec.accounts ?? [];
-    const types = codec.types ?? [];
+  constructor(codama: CodamaDocument) {
+    this.accounts = listCodamaAccounts(codama) as CodecAccountDef[];
+    this.types = listCodamaTypeDefs(codama) as CodecTypeDef[];
+    const accounts = this.accounts;
+    const types = this.types;
     const layouts = accounts.map((account) => {
       const typeDef = types.find((entry) => entry.name === account.name);
       if (!typeDef) {
@@ -335,10 +336,10 @@ export class DirectAccountsCoder {
   }
 
   size(accountName: string): number {
-    const account = (this.codec.accounts ?? []).find((entry) => entry.name === accountName);
+    const account = this.accounts.find((entry) => entry.name === accountName);
     if (!account) {
       throw new Error(`Account not found: ${accountName}`);
     }
-    return Buffer.from(account.discriminator).length + typeSize({ defined: { name: accountName } }, this.codec);
+    return Buffer.from(account.discriminator).length + typeSize({ defined: { name: accountName } }, this.accounts, this.types);
   }
 }

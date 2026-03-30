@@ -13,37 +13,10 @@ const PROGRAM_ID = 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc';
 const MINT_USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const MINT_SOL = 'So11111111111111111111111111111111111111112';
 
-const IDL = {
-  address: PROGRAM_ID,
-  metadata: {
-    name: 'orca_whirlpool_test',
-    version: '0.0.0',
-    spec: '0.1.0',
-  },
-  instructions: [],
-  accounts: [
-    {
-      name: 'Whirlpool',
-      discriminator: [63, 149, 209, 12, 225, 128, 99, 9],
-    },
-  ],
-  types: [
-    {
-      name: 'Whirlpool',
-      type: {
-        kind: 'struct',
-        fields: [
-          { name: 'token_mint_a', type: 'pubkey' },
-          { name: 'token_mint_b', type: 'pubkey' },
-          { name: 'tick_spacing', type: 'u16' },
-          { name: 'liquidity', type: 'u128' },
-        ],
-      },
-    },
-  ],
-};
-
 const CODAMA = {
+  kind: 'rootNode',
+  standard: 'codama',
+  version: '1.0.0',
   program: {
     publicKey: PROGRAM_ID,
     name: 'orca_whirlpool_test',
@@ -167,7 +140,7 @@ async function writeTempRuntimeWithCodama(prefix, runtimeValue, codamaValue) {
 
 test('runRead queries cached_program_accounts via runtime search view and returns sorted selected rows', async () => {
   const metaPath = await writeTempRuntimeWithCodama('runtime', RUNTIME, CODAMA);
-  const coder = new DirectAccountsCoder(IDL);
+  const coder = new DirectAccountsCoder(CODAMA);
 
   const dataA = await coder.encode('Whirlpool', {
     token_mint_a: new PublicKey(MINT_USDC),
@@ -250,7 +223,7 @@ test('runRead queries cached_program_accounts via runtime search view and return
 
 test('syncFullToDatabase bootstraps cached_program_accounts for runtime search views', async () => {
   const metaPath = await writeTempRuntimeWithCodama('runtime-bootstrap', RUNTIME, CODAMA);
-  const coder = new DirectAccountsCoder(IDL);
+  const coder = new DirectAccountsCoder(CODAMA);
   const data = await coder.encode('Whirlpool', {
     token_mint_a: new PublicKey(MINT_USDC),
     token_mint_b: new PublicKey(MINT_SOL),

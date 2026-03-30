@@ -7,14 +7,16 @@ type RuntimeDecoderArtifact = {
   codamaPath?: string;
 };
 
-export type CompiledCodecTypeRef =
+export type CodamaDocument = JsonRecord;
+
+export type CodamaTypeRef =
   | string
-  | { option: CompiledCodecTypeRef }
-  | { vec: CompiledCodecTypeRef }
-  | { array: [CompiledCodecTypeRef, number] }
+  | { option: CodamaTypeRef }
+  | { vec: CodamaTypeRef }
+  | { array: [CodamaTypeRef, number] }
   | { defined: { name: string } };
 
-export type CompiledCodecInstructionAccount = {
+export type CodamaInstructionAccountDef = {
   name: string;
   writable?: boolean;
   signer?: boolean;
@@ -22,46 +24,37 @@ export type CompiledCodecInstructionAccount = {
   address?: string;
 };
 
-export type CompiledCodecInstructionArg = {
+export type CodamaInstructionArgDef = {
   name: string;
-  type: CompiledCodecTypeRef | unknown;
+  type: CodamaTypeRef;
 };
 
-export type CompiledCodecInstruction = {
-  name: string;
-  discriminator: number[];
-  accounts: CompiledCodecInstructionAccount[];
-  args: CompiledCodecInstructionArg[];
-};
-
-export type CompiledCodecAccount = {
+export type CodamaInstructionDef = {
   name: string;
   discriminator: number[];
+  accounts: CodamaInstructionAccountDef[];
+  args: CodamaInstructionArgDef[];
 };
 
-export type CompiledCodecTypeDef = {
+export type CodamaAccountDef = {
+  name: string;
+  discriminator: number[];
+};
+
+export type CodamaTypeDef = {
   name: string;
   type:
-    | { kind: 'struct'; fields: Array<{ name: string; type: CompiledCodecTypeRef | unknown }> }
-    | { kind: 'enum'; variants: Array<{ name: string; fields?: Array<{ name: string; type: CompiledCodecTypeRef | unknown }> | Array<CompiledCodecTypeRef | unknown> }> }
-    | CompiledCodecTypeRef
+    | { kind: 'struct'; fields: Array<{ name: string; type: CodamaTypeRef | unknown }> }
+    | { kind: 'enum'; variants: Array<{ name: string; fields?: Array<{ name: string; type: CodamaTypeRef | unknown }> | Array<CodamaTypeRef | unknown> }> }
+    | CodamaTypeRef
     | unknown;
 };
 
-export type CompiledCodec = {
-  address: string;
-  metadata: {
-    name: string;
-    version: string;
-    spec: string;
-  };
-  instructions: CompiledCodecInstruction[];
-  accounts: CompiledCodecAccount[];
-  types: CompiledCodecTypeDef[];
-};
-
 const codamaFetchCache = new Map<string, Promise<JsonRecord>>();
-const protocolCodecCache = new Map<string, Promise<CompiledCodec>>();
+const protocolCodamaCache = new Map<string, Promise<CodamaDocument>>();
+const instructionCache = new WeakMap<JsonRecord, CodamaInstructionDef[]>();
+const accountCache = new WeakMap<JsonRecord, CodamaAccountDef[]>();
+const typeDefCache = new WeakMap<JsonRecord, CodamaTypeDef[]>();
 
 function asObject(value: unknown, label: string): JsonRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -127,7 +120,7 @@ function extractDiscriminatorField(fields: unknown[], label: string): number[] {
   return extractBytes(defaultValue, `${label}.discriminator.defaultValue`);
 }
 
-function convertTypeNode(typeNode: unknown, context: string): unknown {
+function convertTypeNode(typeNode: unknown, context: string): CodamaTypeRef | unknown {
   const node = asObject(typeNode, context);
   switch (node.kind) {
     case 'publicKeyTypeNode':
@@ -143,9 +136,9 @@ function convertTypeNode(typeNode: unknown, context: string): unknown {
     case 'definedTypeLinkNode':
       return { defined: { name: toPascalCase(asString(node.name, `${context}.name`)) } };
     case 'optionTypeNode':
-      return { option: convertTypeNode(node.item ?? node.type, `${context}.item`) };
+      return { option: convertTypeNode(node.item ?? node.type, `${context}.item`) as CodamaTypeRef };
     case 'arrayTypeNode': {
-      const item = convertTypeNode(node.item, `${context}.item`);
+      const item = convertTypeNode(node.item, `${context}.item`) as CodamaTypeRef;
       const count = asObject(node.count, `${context}.count`);
       if (count.kind === 'fixedCountNode') {
         return { array: [item, Number(count.value)] };
@@ -172,7 +165,7 @@ function convertTypeNode(typeNode: unknown, context: string): unknown {
       return { kind: 'struct', fields: items };
     }
     default:
-      throw new Error(`${context} kind ${String(node.kind)} is unsupported in Codama conversion.`);
+      throw new Error(`${context} kind ${String(node.kind)} is unsupported in Codama access.`);
   }
 }
 
@@ -206,7 +199,7 @@ function convertEnumVariant(variant: unknown, context: string): Record<string, u
   return out;
 }
 
-function convertDefinedType(definedType: unknown, context: string): Record<string, unknown> {
+function convertDefinedType(definedType: unknown, context: string): CodamaTypeDef {
   const entry = asObject(definedType, context);
   const type = asObject(entry.type, `${context}.type`);
   const name = toPascalCase(asString(entry.name, `${context}.name`));
@@ -225,7 +218,10 @@ function convertDefinedType(definedType: unknown, context: string): Record<strin
       type: {
         kind: 'enum',
         variants: asArray(type.variants, `${context}.type.variants`).map((variant, index) =>
-          convertEnumVariant(variant, `${context}.type.variants[${index}]`),
+          convertEnumVariant(variant, `${context}.type.variants[${index}]`) as {
+            name: string;
+            fields?: Array<{ name: string; type: CodamaTypeRef | unknown }> | Array<CodamaTypeRef | unknown>;
+          },
         ),
       },
     };
@@ -239,9 +235,9 @@ function convertDefinedType(definedType: unknown, context: string): Record<strin
   throw new Error(`${context}.type kind ${String(type.kind)} is unsupported.`);
 }
 
-function convertInstructionAccount(account: unknown, context: string): Record<string, unknown> {
+function convertInstructionAccount(account: unknown, context: string): CodamaInstructionAccountDef {
   const entry = asObject(account, context);
-  const output: Record<string, unknown> = {
+  const output: CodamaInstructionAccountDef = {
     name: toSnakeCase(asString(entry.name, `${context}.name`)),
   };
   if (entry.isWritable === true) {
@@ -260,7 +256,7 @@ function convertInstructionAccount(account: unknown, context: string): Record<st
   return output;
 }
 
-function convertInstruction(instruction: unknown, context: string): Record<string, unknown> {
+function convertInstruction(instruction: unknown, context: string): CodamaInstructionDef {
   const entry = asObject(instruction, context);
   const argumentsNode = asArray(entry.arguments, `${context}.arguments`);
   const discriminatorArg = argumentsNode.find((argument) => asObject(argument, `${context}.arguments`).name === 'discriminator');
@@ -280,13 +276,13 @@ function convertInstruction(instruction: unknown, context: string): Record<strin
         const arg = asObject(argument, `${context}.arguments[${index}]`);
         return {
           name: toSnakeCase(asString(arg.name, `${context}.arguments[${index}].name`)),
-          type: convertTypeNode(arg.type, `${context}.arguments[${index}].type`),
+          type: convertTypeNode(arg.type, `${context}.arguments[${index}].type`) as CodamaTypeRef,
         };
       }),
   };
 }
 
-function convertAccount(account: unknown, context: string): Record<string, unknown> {
+function convertAccount(account: unknown, context: string): CodamaAccountDef {
   const entry = asObject(account, context);
   const data = asObject(entry.data, `${context}.data`);
   if (data.kind !== 'structTypeNode') {
@@ -299,7 +295,7 @@ function convertAccount(account: unknown, context: string): Record<string, unkno
   };
 }
 
-function convertAccountType(account: unknown, context: string): Record<string, unknown> {
+function convertAccountType(account: unknown, context: string): CodamaTypeDef {
   const entry = asObject(account, context);
   const data = asObject(entry.data, `${context}.data`);
   if (data.kind !== 'structTypeNode') {
@@ -314,36 +310,8 @@ function convertAccountType(account: unknown, context: string): Record<string, u
   };
 }
 
-export function compileCodamaToCodec(codama: unknown, programIdOverride?: string): CompiledCodec {
-  const document = asObject(codama, 'codama');
-  const program = asObject(document.program, 'codama.program');
-  const programId = programIdOverride ?? asString(program.publicKey, 'codama.program.publicKey');
-  const accounts = asArray(program.accounts ?? [], 'codama.program.accounts');
-  const instructions = asArray(program.instructions ?? [], 'codama.program.instructions');
-  const definedTypes = asArray(program.definedTypes ?? [], 'codama.program.definedTypes');
-
-  return {
-    address: programId,
-    metadata: {
-      name: toSnakeCase(asString(program.name, 'codama.program.name')),
-      version: asString(program.version ?? '0.1.0', 'codama.program.version'),
-      spec: '0.1.0',
-    },
-    instructions: instructions.map((instruction, index) =>
-      convertInstruction(instruction, `codama.program.instructions[${index}]`) as CompiledCodecInstruction,
-    ),
-    accounts: accounts.map((account, index) =>
-      convertAccount(account, `codama.program.accounts[${index}]`) as CompiledCodecAccount,
-    ),
-    types: [
-      ...accounts.map((account, index) =>
-        convertAccountType(account, `codama.program.accounts[${index}]`) as CompiledCodecTypeDef,
-      ),
-      ...definedTypes.map((definedType, index) =>
-        convertDefinedType(definedType, `codama.program.definedTypes[${index}]`) as CompiledCodecTypeDef,
-      ),
-    ],
-  };
+function getProgram(codama: CodamaDocument): JsonRecord {
+  return asObject(asObject(codama, 'codama').program, 'codama.program');
 }
 
 async function loadJsonByPath<T>(filePath: string): Promise<T> {
@@ -373,9 +341,9 @@ function resolveProtocolCodecArtifact(runtime: { decoderArtifacts?: Record<strin
   return artifactEntries[0]!;
 }
 
-export async function loadProtocolCompiledCodecFromCodama(protocolId: string): Promise<CompiledCodec> {
-  if (!protocolCodecCache.has(protocolId)) {
-    protocolCodecCache.set(
+export async function loadProtocolCodamaFromRuntime(protocolId: string): Promise<CodamaDocument> {
+  if (!protocolCodamaCache.has(protocolId)) {
+    protocolCodamaCache.set(
       protocolId,
       (async () => {
         const runtime = await loadProtocolRuntimeSpec(protocolId);
@@ -384,10 +352,78 @@ export async function loadProtocolCompiledCodecFromCodama(protocolId: string): P
         }
         const [artifactName, artifact] = resolveProtocolCodecArtifact(runtime, protocolId);
         const codamaPath = asString((artifact as RuntimeDecoderArtifact).codamaPath, `${protocolId}.decoderArtifacts.${artifactName}.codamaPath`);
-        const codama = await loadJsonByPath<JsonRecord>(codamaPath);
-        return compileCodamaToCodec(codama, undefined);
+        return await loadJsonByPath<CodamaDocument>(codamaPath);
       })(),
     );
   }
-  return await protocolCodecCache.get(protocolId)!;
+  return await protocolCodamaCache.get(protocolId)!;
+}
+
+export function listCodamaInstructions(codama: CodamaDocument): CodamaInstructionDef[] {
+  const cached = instructionCache.get(codama);
+  if (cached) {
+    return cached;
+  }
+  const program = getProgram(codama);
+  const instructions = asArray(program.instructions ?? [], 'codama.program.instructions').map((instruction, index) =>
+    convertInstruction(instruction, `codama.program.instructions[${index}]`),
+  );
+  instructionCache.set(codama, instructions);
+  return instructions;
+}
+
+export function listCodamaAccounts(codama: CodamaDocument): CodamaAccountDef[] {
+  const cached = accountCache.get(codama);
+  if (cached) {
+    return cached;
+  }
+  const program = getProgram(codama);
+  const accounts = asArray(program.accounts ?? [], 'codama.program.accounts').map((account, index) =>
+    convertAccount(account, `codama.program.accounts[${index}]`),
+  );
+  accountCache.set(codama, accounts);
+  return accounts;
+}
+
+export function listCodamaTypeDefs(codama: CodamaDocument): CodamaTypeDef[] {
+  const cached = typeDefCache.get(codama);
+  if (cached) {
+    return cached;
+  }
+  const program = getProgram(codama);
+  const accounts = asArray(program.accounts ?? [], 'codama.program.accounts');
+  const definedTypes = asArray(program.definedTypes ?? [], 'codama.program.definedTypes');
+  const types = [
+    ...accounts.map((account, index) => convertAccountType(account, `codama.program.accounts[${index}]`)),
+    ...definedTypes.map((definedType, index) => convertDefinedType(definedType, `codama.program.definedTypes[${index}]`)),
+  ];
+  typeDefCache.set(codama, types);
+  return types;
+}
+
+export function findCodamaInstructionByName(codama: CodamaDocument, instructionName: string): CodamaInstructionDef | null {
+  const normalizedTarget = toSnakeCase(instructionName);
+  return (
+    listCodamaInstructions(codama).find((candidate) => candidate.name === instructionName) ??
+    listCodamaInstructions(codama).find((candidate) => toSnakeCase(candidate.name) === normalizedTarget) ??
+    null
+  );
+}
+
+export function findCodamaAccountByName(codama: CodamaDocument, accountName: string): CodamaAccountDef | null {
+  const normalizedTarget = toSnakeCase(accountName);
+  return (
+    listCodamaAccounts(codama).find((candidate) => candidate.name === accountName) ??
+    listCodamaAccounts(codama).find((candidate) => toSnakeCase(candidate.name) === normalizedTarget) ??
+    null
+  );
+}
+
+export function findCodamaTypeDefByName(codama: CodamaDocument, typeName: string): CodamaTypeDef | null {
+  const normalizedTarget = toSnakeCase(typeName);
+  return (
+    listCodamaTypeDefs(codama).find((candidate) => candidate.name === typeName) ??
+    listCodamaTypeDefs(codama).find((candidate) => toSnakeCase(candidate.name) === normalizedTarget) ??
+    null
+  );
 }
