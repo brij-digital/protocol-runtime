@@ -5,6 +5,7 @@ const ROOT = process.cwd();
 const SCHEMA_DIR = path.join(ROOT, 'schemas');
 const EXPECTED_FILES = [
   'declarative_decoder_runtime.schema.v1.json',
+  'solana_agent_runtime.schema.v1.json',
 ];
 
 function fail(message) {
