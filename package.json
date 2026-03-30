@@ -1,6 +1,6 @@
 {
   "name": "@brij-digital/apppack-runtime",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "type": "module",
   "repository": {
     "type": "git",
@@ -29,6 +29,10 @@
     "./idlRegistry": {
       "types": "./dist/idlRegistry.d.ts",
       "import": "./dist/idlRegistry.js"
+    },
+    "./codamaAnchor": {
+      "types": "./dist/codamaAnchor.d.ts",
+      "import": "./dist/codamaAnchor.js"
     },
     "./node/view-read-service": {
       "types": "./dist/node/view-read-service.d.ts",
