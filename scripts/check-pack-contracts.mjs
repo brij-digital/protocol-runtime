@@ -50,7 +50,7 @@ async function main() {
     if (typeof protocol.id !== 'string' || protocol.id.trim().length === 0) {
       fail('Registry protocol entry is missing id.');
     }
-    for (const key of ['idlPath', 'codamaIdlPath', 'runtimeSpecPath', 'appPath']) {
+    for (const key of ['idlPath', 'codamaIdlPath', 'runtimeSpecPath']) {
       const value = protocol[key];
       if (value == null) {
         continue;
@@ -63,11 +63,6 @@ async function main() {
       const parsed = await loadJson(filePath);
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         fail(`${filePath} did not parse as a JSON object.`);
-      }
-      if (key === 'appPath') {
-        if (typeof parsed.schema !== 'string' || !parsed.schema.startsWith('meta-app')) {
-          fail(`${filePath} has invalid app schema marker.`);
-        }
       }
       if (key === 'runtimeSpecPath') {
         if (parsed.schema !== 'declarative-decoder-runtime.v1') {
@@ -108,9 +103,13 @@ async function main() {
       fail(`Protocol ${protocol.id} still declares registry idlPath alongside runtimeSpecPath; migrated pack contracts must source codec IDL from runtime decoderArtifacts only.`);
     }
 
+    if (protocol.appPath != null) {
+      fail(`Protocol ${protocol.id} still declares appPath; active pack contracts are codama/runtime only.`);
+    }
+
     for (const legacyKey of ['metaPath', 'metaCorePath']) {
       if (protocol[legacyKey] != null) {
-        fail(`Protocol ${protocol.id} still declares legacy ${legacyKey}; active pack contracts are codama/runtime/app only.`);
+        fail(`Protocol ${protocol.id} still declares legacy ${legacyKey}; active pack contracts are codama/runtime only.`);
       }
     }
   }

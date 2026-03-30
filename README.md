@@ -11,7 +11,6 @@ Used by:
 `schemas/` is the source of truth for shared AppPack schema files:
 - `meta_view.schema.v0.2.json`
 - `meta_view.schema.v0.3.json`
-- `meta_app.schema.v0.1.json`
 - `declarative_decoder_runtime.schema.v1.json`
 
 Downstream repos should sync these files from runtime and treat local copies as generated artifacts.
@@ -45,7 +44,7 @@ Do not reintroduce the legacy `@agentform/apppack-runtime` alias.
 
 This package provides generic, protocol-agnostic runtime logic for:
 - IDL instruction preparation/simulate/send
-- app-spec operation materialization and execution
+- runtime operation materialization and execution
 - discover/derive/compute runtime primitives
 - read runtime for indexed views (`node/view-read-service`)
 
@@ -67,11 +66,10 @@ The intended split is:
 In other words, `account` does not mean "stale cached forever".
 It means the view starts from a known address instead of a discovery scan.
 
-Protocol-specific behavior belongs in pack data (`codama + runtime + app`), not in runtime code.
+Protocol-specific behavior belongs in pack data (`codama + runtime`), not in runtime code.
 For indexing/runtime ownership, the intended split is:
 - `Codama IDL`: declarative protocol description and protocol source of truth
 - `declarative runtime spec`: declarative indexing contract
-- `app spec`: declarative product / agent flow
 
 For migrated protocols, `idlPath` is compatibility-only.
 Active execution should resolve any required codec IDL from `runtimeSpec.decoderArtifacts.*.codecIdlPath` instead of treating `registry.idlPath` as structural truth.
@@ -80,7 +78,6 @@ Active execution should resolve any required codec IDL from `runtimeSpec.decoder
 
 - `@brij-digital/apppack-runtime`
 - `@brij-digital/apppack-runtime/idlDeclarativeRuntime`
-- `@brij-digital/apppack-runtime/appSpecRuntime`
 - `@brij-digital/apppack-runtime/runtimeOperationRuntime`
 - `@brij-digital/apppack-runtime/idlRegistry`
 - `@brij-digital/apppack-runtime/node/view-read-service`
@@ -102,7 +99,6 @@ npm run test
 ## Package Layout
 
 - `src/idlDeclarativeRuntime.ts`
-- `src/appSpecRuntime.ts`
 - `src/metaDiscoverRegistry.ts`
 - `src/metaComputeRegistry.ts`
 - `src/node/view-read-service.ts`

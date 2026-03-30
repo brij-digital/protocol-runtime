@@ -6,7 +6,6 @@ const SCHEMA_DIR = path.join(ROOT, 'schemas');
 const EXPECTED_FILES = [
   'meta_view.schema.v0.2.json',
   'meta_view.schema.v0.3.json',
-  'meta_app.schema.v0.1.json',
   'declarative_decoder_runtime.schema.v1.json',
 ];
 

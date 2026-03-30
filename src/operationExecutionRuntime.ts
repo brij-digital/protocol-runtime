@@ -152,7 +152,6 @@ type ResolverContext = {
     network: string;
     programId: string;
     codecIdlPath: string | null;
-    appPath?: string;
   };
   runtime: RuntimePack;
   input: Record<string, unknown>;
@@ -668,7 +667,6 @@ export async function prepareRuntimeOperation(options: {
       network: protocol.network,
       programId: protocol.programId,
       codecIdlPath,
-      appPath: protocol.appPath,
     },
     runtime,
   };

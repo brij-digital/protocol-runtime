@@ -193,7 +193,7 @@ type AppPackViewReadServiceOptions = {
   databaseUrl: string | null;
   poolOverride?: Pool | null;
   cacheTtlMs: number;
-  appPath?: string;
+  runtimePath: string;
   codecIdlPath?: string;
   programId: string;
   operationId: string;
@@ -245,8 +245,8 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function parseOperationPack(appPath: string): MetaPack {
-  return JSON.parse(fs.readFileSync(appPath, 'utf8')) as MetaPack;
+function parseOperationPack(runtimePath: string): MetaPack {
+  return JSON.parse(fs.readFileSync(runtimePath, 'utf8')) as MetaPack;
 }
 
 function parseIdl(idlPath: string): Idl {
@@ -722,16 +722,13 @@ export class AppPackViewReadService {
         : null;
     }
 
-    const appPath = options.appPath;
-    if (!appPath) {
-      throw new Error('AppPackViewReadService requires appPath.');
-    }
+    const runtimePath = options.runtimePath;
     const codecIdlPath = options.codecIdlPath;
     if (!codecIdlPath) {
       throw new Error('AppPackViewReadService requires codecIdlPath.');
     }
 
-    const meta = parseOperationPack(path.resolve(appPath));
+    const meta = parseOperationPack(path.resolve(runtimePath));
     const idl = parseIdl(path.resolve(codecIdlPath));
     this.coder = new BorshAccountsCoder(idl);
     this.compiled = compileOperation(meta, this.coder, options);

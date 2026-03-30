@@ -8,7 +8,6 @@ export type ProtocolManifest = {
   idlPath?: string;
   codamaIdlPath?: string;
   runtimeSpecPath?: string;
-  appPath?: string;
   transport: string;
   supportedCommands: string[];
   status: 'active' | 'inactive';
