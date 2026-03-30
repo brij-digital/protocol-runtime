@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Connection, PublicKey, type Commitment, type GetProgramAccountsFilter } from '@solana/web3.js';
-import { compileCodamaToAnchorIdl } from '../codamaAnchor.js';
+import { compileCodamaToRuntimeIdl } from '../codamaIdl.js';
 import { DirectAccountsCoder, type DirectAccountIdl } from '../directAccountsCoder.js';
 import { Pool } from 'pg';
 
@@ -253,7 +253,7 @@ function parseRuntimeCodamaIdl(runtimePath: string, protocolId: string): DirectA
   }
   const codamaFilePath = path.join(path.dirname(runtimePath), codamaPath.slice('/idl/'.length));
   const codama = JSON.parse(fs.readFileSync(codamaFilePath, 'utf8'));
-  return compileCodamaToAnchorIdl(codama) as unknown as DirectAccountIdl;
+  return compileCodamaToRuntimeIdl(codama) as unknown as DirectAccountIdl;
 }
 
 function parsePublicKey(value: string, name: string): PublicKey {

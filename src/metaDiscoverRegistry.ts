@@ -1,9 +1,9 @@
-import type { Idl } from '@coral-xyz/anchor';
 import { PublicKey, type Connection, type Commitment, type GetProgramAccountsFilter } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 import bs58 from 'bs58';
 import { resolveAppUrl } from './appUrl.js';
 import { isBnLike } from './bnLike.js';
+import type { RuntimeIdl as Idl } from './codamaIdl.js';
 import { DirectAccountsCoder } from './directAccountsCoder.js';
 
 export type DiscoverStepResolved = {

@@ -4,12 +4,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import anchorPkg from '@coral-xyz/anchor';
+import BN from 'bn.js';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { AppPackViewReadService } from '../dist/node/view-read-service.js';
 import { DirectAccountsCoder } from '../dist/index.js';
-
-const { BN } = anchorPkg;
 
 const PROGRAM_ID = 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc';
 const MINT_USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';

@@ -1,4 +1,3 @@
-import type { Idl } from '@coral-xyz/anchor';
 import { resolveAppUrl } from './appUrl.js';
 import { loadProtocolRuntimeSpec } from './idlRegistry.js';
 
@@ -8,8 +7,61 @@ type RuntimeDecoderArtifact = {
   codamaPath?: string;
 };
 
+export type RuntimeIdlTypeRef =
+  | string
+  | { option: RuntimeIdlTypeRef }
+  | { vec: RuntimeIdlTypeRef }
+  | { array: [RuntimeIdlTypeRef, number] }
+  | { defined: { name: string } };
+
+export type RuntimeIdlInstructionAccount = {
+  name: string;
+  writable?: boolean;
+  signer?: boolean;
+  optional?: boolean;
+  address?: string;
+};
+
+export type RuntimeIdlInstructionArg = {
+  name: string;
+  type: RuntimeIdlTypeRef | unknown;
+};
+
+export type RuntimeIdlInstruction = {
+  name: string;
+  discriminator: number[];
+  accounts: RuntimeIdlInstructionAccount[];
+  args: RuntimeIdlInstructionArg[];
+};
+
+export type RuntimeIdlAccount = {
+  name: string;
+  discriminator: number[];
+};
+
+export type RuntimeIdlTypeDef = {
+  name: string;
+  type:
+    | { kind: 'struct'; fields: Array<{ name: string; type: RuntimeIdlTypeRef | unknown }> }
+    | { kind: 'enum'; variants: Array<{ name: string; fields?: Array<{ name: string; type: RuntimeIdlTypeRef | unknown }> | Array<RuntimeIdlTypeRef | unknown> }> }
+    | RuntimeIdlTypeRef
+    | unknown;
+};
+
+export type RuntimeIdl = {
+  address: string;
+  metadata: {
+    name: string;
+    version: string;
+    spec: string;
+  };
+  instructions: RuntimeIdlInstruction[];
+  accounts: RuntimeIdlAccount[];
+  types: RuntimeIdlTypeDef[];
+};
+
 const codamaFetchCache = new Map<string, Promise<JsonRecord>>();
-const protocolIdlCache = new Map<string, Promise<Idl>>();
+const protocolIdlCache = new Map<string, Promise<RuntimeIdl>>();
 
 function asObject(value: unknown, label: string): JsonRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -262,7 +314,7 @@ function convertAccountType(account: unknown, context: string): Record<string, u
   };
 }
 
-export function compileCodamaToAnchorIdl(codama: unknown, programIdOverride?: string): Idl {
+export function compileCodamaToRuntimeIdl(codama: unknown, programIdOverride?: string): RuntimeIdl {
   const document = asObject(codama, 'codama');
   const program = asObject(document.program, 'codama.program');
   const programId = programIdOverride ?? asString(program.publicKey, 'codama.program.publicKey');
@@ -278,20 +330,20 @@ export function compileCodamaToAnchorIdl(codama: unknown, programIdOverride?: st
       spec: '0.1.0',
     },
     instructions: instructions.map((instruction, index) =>
-      convertInstruction(instruction, `codama.program.instructions[${index}]`),
+      convertInstruction(instruction, `codama.program.instructions[${index}]`) as RuntimeIdlInstruction,
     ),
     accounts: accounts.map((account, index) =>
-      convertAccount(account, `codama.program.accounts[${index}]`),
+      convertAccount(account, `codama.program.accounts[${index}]`) as RuntimeIdlAccount,
     ),
     types: [
       ...accounts.map((account, index) =>
-        convertAccountType(account, `codama.program.accounts[${index}]`),
+        convertAccountType(account, `codama.program.accounts[${index}]`) as RuntimeIdlTypeDef,
       ),
       ...definedTypes.map((definedType, index) =>
-        convertDefinedType(definedType, `codama.program.definedTypes[${index}]`),
+        convertDefinedType(definedType, `codama.program.definedTypes[${index}]`) as RuntimeIdlTypeDef,
       ),
     ],
-  } as Idl;
+  };
 }
 
 async function loadJsonByPath<T>(filePath: string): Promise<T> {
@@ -321,7 +373,7 @@ function resolveProtocolCodecArtifact(runtime: { decoderArtifacts?: Record<strin
   return artifactEntries[0]!;
 }
 
-export async function loadProtocolAnchorIdlFromCodama(protocolId: string): Promise<Idl> {
+export async function loadProtocolRuntimeIdlFromCodama(protocolId: string): Promise<RuntimeIdl> {
   if (!protocolIdlCache.has(protocolId)) {
     protocolIdlCache.set(
       protocolId,
@@ -333,7 +385,7 @@ export async function loadProtocolAnchorIdlFromCodama(protocolId: string): Promi
         const [artifactName, artifact] = resolveProtocolCodecArtifact(runtime, protocolId);
         const codamaPath = asString((artifact as RuntimeDecoderArtifact).codamaPath, `${protocolId}.decoderArtifacts.${artifactName}.codamaPath`);
         const codama = await loadJsonByPath<JsonRecord>(codamaPath);
-        return compileCodamaToAnchorIdl(codama, undefined);
+        return compileCodamaToRuntimeIdl(codama, undefined);
       })(),
     );
   }

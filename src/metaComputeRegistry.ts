@@ -1,5 +1,5 @@
-import type { Idl } from '@coral-xyz/anchor';
 import { PublicKey, type Connection } from '@solana/web3.js';
+import type { RuntimeIdl as Idl } from './codamaIdl.js';
 
 export type ComputeStepResolved = {
   name: string;

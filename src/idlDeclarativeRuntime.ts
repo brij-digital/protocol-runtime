@@ -1,5 +1,4 @@
 import BN from 'bn.js';
-import type { Idl } from '@coral-xyz/anchor';
 import type { WalletContextState } from '@solana/wallet-adapter-react';
 import {
   PublicKey,
@@ -13,7 +12,10 @@ import {
   loadRegistry,
   type ProtocolManifest,
 } from './idlRegistry.js';
-import { loadProtocolAnchorIdlFromCodama } from './codamaAnchor.js';
+import {
+  loadProtocolRuntimeIdlFromCodama,
+  type RuntimeIdl as Idl,
+} from './codamaIdl.js';
 import { DirectAccountsCoder } from './directAccountsCoder.js';
 import { DirectInstructionCoder } from './directInstructionCoder.js';
 import { isBnLike } from './bnLike.js';
@@ -323,7 +325,7 @@ async function loadProtocolAndIdl(protocolId: string): Promise<{ protocol: Proto
     };
   }
 
-  const parsed = await loadProtocolAnchorIdlFromCodama(protocolId);
+  const parsed = await loadProtocolRuntimeIdlFromCodama(protocolId);
   idlCache.set(protocol.id, parsed);
 
   return {

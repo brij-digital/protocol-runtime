@@ -1,6 +1,6 @@
 {
   "name": "@brij-digital/apppack-runtime",
-  "version": "0.1.34",
+  "version": "0.1.35",
   "type": "module",
   "repository": {
     "type": "git",
@@ -30,9 +30,9 @@
       "types": "./dist/idlRegistry.d.ts",
       "import": "./dist/idlRegistry.js"
     },
-    "./codamaAnchor": {
-      "types": "./dist/codamaAnchor.d.ts",
-      "import": "./dist/codamaAnchor.js"
+    "./codamaIdl": {
+      "types": "./dist/codamaIdl.d.ts",
+      "import": "./dist/codamaIdl.js"
     },
     "./node/view-read-service": {
       "types": "./dist/node/view-read-service.d.ts",
@@ -51,7 +51,6 @@
     "registry": "https://npm.pkg.github.com"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.32.1",
     "@coral-xyz/borsh": "^0.31.1",
     "@noble/hashes": "^1.8.0",
     "@solana/spl-token": "^0.4.14",

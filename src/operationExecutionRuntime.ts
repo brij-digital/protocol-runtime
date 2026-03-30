@@ -1,13 +1,15 @@
-import * as anchorPkg from '@coral-xyz/anchor';
+import BN from 'bn.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
-import type { Idl } from '@coral-xyz/anchor';
 import type { Connection } from '@solana/web3.js';
 import { PublicKey } from '@solana/web3.js';
 import { getProtocolById } from './idlRegistry.js';
 import { previewIdlInstruction } from './idlDeclarativeRuntime.js';
 import { runRegisteredComputeStep } from './metaComputeRegistry.js';
 import { runRegisteredDiscoverStep } from './metaDiscoverRegistry.js';
-import { loadProtocolAnchorIdlFromCodama } from './codamaAnchor.js';
+import {
+  loadProtocolRuntimeIdlFromCodama,
+  type RuntimeIdl as Idl,
+} from './codamaIdl.js';
 import { DirectAccountsCoder } from './directAccountsCoder.js';
 import {
   type MaterializedRuntimeOperation,
@@ -18,8 +20,6 @@ import {
   materializeRuntimeOperation,
 } from './operationPackRuntime.js';
 import { resolveAppUrl } from './appUrl.js';
-
-const { BN } = anchorPkg;
 
 const DEFAULT_SPL_TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const DEFAULT_ASSOCIATED_TOKEN_PROGRAM = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
@@ -347,7 +347,7 @@ async function loadProtocolIdl(protocolId: string): Promise<Idl> {
   if (cached) {
     return cached;
   }
-  const parsed = await loadProtocolAnchorIdlFromCodama(protocolId);
+  const parsed = await loadProtocolRuntimeIdlFromCodama(protocolId);
   idlCache.set(protocolId, parsed);
   return parsed;
 }
