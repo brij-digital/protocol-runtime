@@ -1,5 +1,7 @@
 # Codama Declarative Indexing Migration Plan
 
+Historical migration document. Keep for context only; the active runtime no longer includes `metaIdlRuntime`.
+
 ## Goal
 
 Move AppPack to a `Codama + runtime spec + app pack` model where, for migrated protocols:
@@ -106,7 +108,7 @@ For migrated protocols, move decode truth from legacy IDL to `Codama + runtime s
 ### Primary Targets
 
 - `apppack-runtime/src/idlDeclarativeRuntime.ts`
-- `apppack-runtime/src/metaIdlRuntime.ts`
+- `apppack-runtime/src/runtimeOperationRuntime.ts`
 - `apppack-runtime/src/node/view-read-service.ts`
 - `apppack-view-service/generated/runtime-decoder-plan.json`
 

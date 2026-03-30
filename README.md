@@ -9,8 +9,6 @@ Used by:
 ## Shared Schemas
 
 `schemas/` is the source of truth for shared AppPack schema files:
-- `meta_idl.schema.v0.6.json`
-- `meta_idl.core.schema.v0.6.json`
 - `meta_view.schema.v0.2.json`
 - `meta_view.schema.v0.3.json`
 - `meta_app.schema.v0.1.json`
@@ -78,18 +76,12 @@ For indexing/runtime ownership, the intended split is:
 For migrated protocols, `idlPath` is compatibility-only.
 Active execution should resolve any required codec IDL from `runtimeSpec.decoderArtifacts.*.codecIdlPath` instead of treating `registry.idlPath` as structural truth.
 
-`meta_idl` and `meta_idl.core` are now legacy transitional schemas.
-Do not add new protocol truth or new indexing logic there.
-New work should go into:
-- `Codama` for protocol structure
-- `runtime` for indexing / compute / projections
-- `app` for UX / agent flow
-
 ## Exports
 
 - `@brij-digital/apppack-runtime`
 - `@brij-digital/apppack-runtime/idlDeclarativeRuntime`
 - `@brij-digital/apppack-runtime/appSpecRuntime`
+- `@brij-digital/apppack-runtime/runtimeOperationRuntime`
 - `@brij-digital/apppack-runtime/idlRegistry`
 - `@brij-digital/apppack-runtime/node/view-read-service`
 
