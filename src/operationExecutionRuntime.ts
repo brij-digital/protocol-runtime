@@ -146,6 +146,21 @@ export type PreparedMetaOperation = {
   postInstructions: PreparedPostInstruction[];
 };
 
+export type PreparedMetaCompute = {
+  protocolId: string;
+  operationId: string;
+  derived: Record<string, unknown>;
+  output: unknown;
+  readOutput?: {
+    type: 'array' | 'object' | 'scalar' | 'list';
+    source: string;
+    title?: string;
+    emptyText?: string;
+    maxItems?: number;
+    itemLabelFields?: string[];
+  };
+};
+
 type ResolverContext = {
   protocol: {
     id: string;
@@ -706,6 +721,88 @@ export async function prepareRuntimeOperation(options: {
     readOutput: normalizeReadOutputSpec(operation.readOutput, `${options.protocolId}/${options.operationId}`),
     preInstructions: resolvePreInstructions(operation.pre as PreInstructionSpec[] | undefined, scope),
     postInstructions: resolvePostInstructions(operation.post as PostInstructionSpec[] | undefined, scope),
+  };
+}
+
+export async function runRuntimeCompute(options: {
+  protocolId: string;
+  operationId: string;
+  input: Record<string, unknown>;
+  connection: Connection;
+  walletPublicKey: PublicKey;
+}): Promise<PreparedMetaCompute> {
+  const protocol = await getProtocolById(options.protocolId);
+  const runtime = await loadRuntimePack(options.protocolId);
+  const idl = await loadProtocolIdl(options.protocolId);
+  const operationSpec = runtime.computes?.[options.operationId];
+  if (!operationSpec) {
+    throw new Error(`Compute ${options.operationId} not found in agent runtime pack for ${options.protocolId}.`);
+  }
+  const operation = materializeRuntimeOperation(options.operationId, operationSpec, runtime, 'compute');
+  const hydratedInput: Record<string, unknown> = {};
+  for (const [key, spec] of Object.entries(operation.inputs)) {
+    if (options.input[key] !== undefined) {
+      hydratedInput[key] = options.input[key];
+      continue;
+    }
+    if (spec.default !== undefined) {
+      hydratedInput[key] = spec.default;
+      continue;
+    }
+    if (spec.required !== false) {
+      throw new Error(`Missing required runtime input: ${key}`);
+    }
+  }
+  const scope: JsonRecord = {
+    input: hydratedInput,
+    protocol: {
+      id: protocol.id,
+      name: protocol.name,
+      network: protocol.network,
+      programId: protocol.programId,
+    },
+    runtime,
+  };
+  const derived: Record<string, unknown> = {};
+  scope.derived = derived;
+  const resolverCtx: ResolverContext = {
+    protocol: scope.protocol as ResolverContext['protocol'],
+    runtime,
+    input: hydratedInput,
+    idl,
+    connection: options.connection,
+    walletPublicKey: options.walletPublicKey,
+    scope,
+  };
+  for (const step of operation.discover as DiscoverStep[]) {
+    const value = await runDiscoverStep(step, resolverCtx);
+    derived[step.name] = value;
+    scope[step.name] = value;
+    scope.derived = derived;
+  }
+  for (const step of operation.derive as DeriveStep[]) {
+    const value = await runResolver(step, resolverCtx);
+    derived[step.name] = value;
+    scope[step.name] = value;
+    scope.derived = derived;
+  }
+  for (const step of operation.compute as ComputeStep[]) {
+    const value = await runComputeStep(step, resolverCtx);
+    derived[step.name] = value;
+    scope[step.name] = value;
+    scope.derived = derived;
+  }
+
+  const output = operation.readOutput?.source
+    ? normalizeRuntimeValue(resolvePath(scope, operation.readOutput.source))
+    : normalizeRuntimeValue(derived);
+
+  return {
+    protocolId: options.protocolId,
+    operationId: options.operationId,
+    derived,
+    output,
+    readOutput: normalizeReadOutputSpec(operation.readOutput, `${options.protocolId}/${options.operationId}`),
   };
 }
 
