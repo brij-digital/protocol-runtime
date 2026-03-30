@@ -90,7 +90,6 @@ New work should go into:
 - `@brij-digital/apppack-runtime`
 - `@brij-digital/apppack-runtime/idlDeclarativeRuntime`
 - `@brij-digital/apppack-runtime/appSpecRuntime`
-- `@brij-digital/apppack-runtime/metaIdlRuntime` (compat only)
 - `@brij-digital/apppack-runtime/idlRegistry`
 - `@brij-digital/apppack-runtime/node/view-read-service`
 
@@ -112,7 +111,6 @@ npm run test
 
 - `src/idlDeclarativeRuntime.ts`
 - `src/appSpecRuntime.ts`
-- `src/metaIdlRuntime.ts`
 - `src/metaDiscoverRegistry.ts`
 - `src/metaComputeRegistry.ts`
 - `src/node/view-read-service.ts`

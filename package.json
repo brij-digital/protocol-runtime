@@ -1,6 +1,6 @@
 {
   "name": "@brij-digital/apppack-runtime",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "type": "module",
   "repository": {
     "type": "git",
@@ -29,10 +29,6 @@
     "./runtimeOperationRuntime": {
       "types": "./dist/runtimeOperationRuntime.d.ts",
       "import": "./dist/runtimeOperationRuntime.js"
-    },
-    "./metaIdlRuntime": {
-      "types": "./dist/metaIdlRuntime.d.ts",
-      "import": "./dist/metaIdlRuntime.js"
     },
     "./idlRegistry": {
       "types": "./dist/idlRegistry.d.ts",
