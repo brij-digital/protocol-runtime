@@ -1,9 +1,9 @@
-import anchorPkg from '@coral-xyz/anchor';
 import type { Idl } from '@coral-xyz/anchor';
 import { PublicKey, type Connection, type Commitment, type GetProgramAccountsFilter } from '@solana/web3.js';
 import { Buffer } from 'buffer';
 import bs58 from 'bs58';
 import { resolveAppUrl } from './appUrl.js';
+import { isBnLike } from './bnLike.js';
 import { DirectAccountsCoder } from './directAccountsCoder.js';
 
 export type DiscoverStepResolved = {
@@ -169,7 +169,7 @@ function resolveOptionalGlobalPathValue(value: unknown, scope: Record<string, un
 }
 
 function normalizeRuntimeValue(value: unknown): unknown {
-  if (BN.isBN(value)) {
+  if (isBnLike(value)) {
     return (value as { toString(): string }).toString();
   }
 
@@ -803,4 +803,3 @@ export async function runRegisteredDiscoverStep(step: DiscoverStepResolved, ctx:
 
   return executor(step, ctx);
 }
-const { BN } = anchorPkg;
