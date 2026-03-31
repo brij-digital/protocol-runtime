@@ -1,5 +1,11 @@
 const PROTOCOL_URL_RE = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
-const IDL_CACHE_BUST_VERSION = 'runtime-0.1.20';
+const IDL_CACHE_BUST_VERSION = 'runtime-0.1.42';
+
+type ImportMetaWithOptionalEnv = ImportMeta & {
+  env?: {
+    BASE_URL?: string;
+  };
+};
 
 function normalizeBaseUrl(baseRaw: string | undefined): string {
   const trimmed = (baseRaw ?? '/').trim();
@@ -23,7 +29,7 @@ export function resolveAppUrl(url: string): string {
     return withCacheBust(url);
   }
 
-  const base = normalizeBaseUrl(import.meta.env.BASE_URL);
+  const base = normalizeBaseUrl((import.meta as ImportMetaWithOptionalEnv).env?.BASE_URL);
 
   if (url.startsWith('/')) {
     if (base === '/') {
