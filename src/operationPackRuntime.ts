@@ -7,24 +7,6 @@ import { PublicKey } from '@solana/web3.js';
 
 type JsonRecord = Record<string, unknown>;
 
-type TemplateParamSpec =
-  | string
-  | {
-      type?: string;
-      required?: boolean;
-      default?: unknown;
-    };
-
-type TemplateSpec = {
-  params?: Record<string, TemplateParamSpec>;
-  expand: JsonRecord;
-};
-
-type TemplateUseSpec = {
-  template: string;
-  with?: Record<string, unknown>;
-};
-
 type RuntimeInputSpec = {
   type: string;
   required?: boolean;
@@ -75,10 +57,10 @@ type AgentIndexViewSpec = {
 };
 
 type AgentComputeSpec = {
+  instruction?: string;
   inputs?: Record<string, RuntimeInputSpec>;
   derive?: unknown[];
   compute?: unknown[];
-  use?: TemplateUseSpec[];
   read_output?: ReadOutputSpec;
   validate?: {
     cross?: Array<{
@@ -100,7 +82,6 @@ type AgentExecutionSpec = {
   remaining_accounts?: unknown;
   pre?: unknown[];
   post?: unknown[];
-  use?: TemplateUseSpec[];
   read_output?: ReadOutputSpec;
   validate?: {
     cross?: Array<{
@@ -131,7 +112,6 @@ export type RuntimePack = {
   index_views?: Record<string, AgentIndexViewSpec>;
   computes?: Record<string, AgentComputeSpec>;
   contract_writes?: Record<string, AgentExecutionSpec>;
-  templates?: Record<string, TemplateSpec>;
 };
 
 type OperationKind = 'index_view' | 'compute' | 'contract_write';
@@ -201,7 +181,6 @@ export type RuntimeOperationExplain = {
   operationId: string;
   operationKind: OperationKind;
   instruction: string;
-  templateUse: unknown[];
   inputs: Record<string, RuntimeInputSpec>;
   derive: unknown[];
   compute: unknown[];
@@ -229,24 +208,6 @@ function cloneJsonLike<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function resolveTemplateExpansionValue(value: unknown, paramScope: JsonRecord): unknown {
-  if (typeof value === 'string' && value.startsWith('$param.')) {
-    return resolvePath(paramScope, value);
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => resolveTemplateExpansionValue(item, paramScope));
-  }
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as JsonRecord).map(([key, nested]) => [
-        key,
-        resolveTemplateExpansionValue(nested, paramScope),
-      ]),
-    );
-  }
-  return value;
-}
-
 function readPathFromValue(value: unknown, path: string): unknown {
   const cleaned = path.startsWith('$') ? path.slice(1) : path;
   const parts = cleaned.split('.').filter(Boolean);
@@ -266,40 +227,6 @@ function resolvePath(scope: JsonRecord, path: string): unknown {
     throw new Error(`Cannot resolve path ${path}.`);
   }
   return resolved;
-}
-
-function resolveTemplateParams(
-  templateName: string,
-  template: TemplateSpec,
-  use: TemplateUseSpec,
-): JsonRecord {
-  const provided = use.with ?? {};
-  const resolved: JsonRecord = {};
-
-  if (template.params) {
-    for (const [name, rawSpec] of Object.entries(template.params)) {
-      const spec = typeof rawSpec === 'string' ? { type: rawSpec } : rawSpec;
-      if (provided[name] !== undefined) {
-        resolved[name] = provided[name];
-        continue;
-      }
-      if (spec.default !== undefined) {
-        resolved[name] = spec.default;
-        continue;
-      }
-      if (spec.required !== false) {
-        throw new Error(`Template ${templateName} missing required param ${name}.`);
-      }
-    }
-    for (const key of Object.keys(provided)) {
-      if (!(key in template.params)) {
-        throw new Error(`Template ${templateName} received unknown param ${key}.`);
-      }
-    }
-    return resolved;
-  }
-
-  return { ...provided };
 }
 
 function mergeMaterializedFragment(
@@ -412,22 +339,6 @@ export function materializeRuntimeOperation(
     pre: [],
     post: [],
   };
-
-  for (const use of (operation as AgentComputeSpec | AgentExecutionSpec).use ?? []) {
-    const templateName = use.template;
-    if (!templateName) {
-      throw new Error(`Operation ${operationId} contains use item without template name.`);
-    }
-    const template = pack.templates?.[templateName];
-    if (!template) {
-      throw new Error(`Operation ${operationId} references unknown template ${templateName}.`);
-    }
-    const params = resolveTemplateParams(templateName, template, use);
-    const expanded = resolveTemplateExpansionValue(cloneJsonLike(template.expand), {
-      param: params,
-    }) as Partial<AgentComputeSpec & AgentExecutionSpec>;
-    mergeMaterializedFragment(materialized, expanded);
-  }
 
   mergeMaterializedFragment(materialized, cloneJsonLike(operation as Partial<AgentComputeSpec & AgentExecutionSpec>));
 
@@ -726,7 +637,6 @@ export async function explainRuntimeOperation(options: {
     operationId: options.operationId,
     operationKind: resolved.kind,
     instruction: materialized.instruction,
-    templateUse: cloneJsonLike((resolved.spec as AgentComputeSpec | AgentExecutionSpec).use ?? []),
     inputs: cloneJsonLike(materialized.inputs),
     derive: cloneJsonLike(materialized.derive),
     compute: cloneJsonLike(materialized.compute),

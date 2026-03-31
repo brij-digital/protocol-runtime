@@ -28,12 +28,6 @@
       "additionalProperties": {
         "$ref": "#/$defs/executionSpec"
       }
-    },
-    "templates": {
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/$defs/templateSpec"
-      }
     }
   },
   "$defs": {
@@ -158,6 +152,7 @@
     "computeSpec": {
       "type": "object",
       "properties": {
+        "instruction": { "type": "string" },
         "inputs": {
           "type": "object",
           "additionalProperties": {
@@ -175,10 +170,6 @@
         "compute": {
           "type": "array",
           "items": { "$ref": "#/$defs/jsonValue" }
-        },
-        "use": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/templateUseSpec" }
         },
         "read_output": {
           "$ref": "#/$defs/readOutputSpec"
@@ -225,58 +216,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/jsonValue" }
         },
-        "use": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/templateUseSpec" }
-        },
         "read_output": {
           "$ref": "#/$defs/readOutputSpec"
         }
       },
       "additionalProperties": true
-    },
-    "templateParamSpec": {
-      "oneOf": [
-        { "type": "string" },
-        {
-          "type": "object",
-          "properties": {
-            "type": { "type": "string" },
-            "required": { "type": "boolean" },
-            "default": { "$ref": "#/$defs/jsonValue" }
-          },
-          "additionalProperties": true
-        }
-      ]
-    },
-    "templateSpec": {
-      "type": "object",
-      "required": ["expand"],
-      "properties": {
-        "params": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/templateParamSpec"
-          }
-        },
-        "expand": {
-          "type": "object",
-          "additionalProperties": true
-        }
-      },
-      "additionalProperties": false
-    },
-    "templateUseSpec": {
-      "type": "object",
-      "required": ["template"],
-      "properties": {
-        "template": { "type": "string" },
-        "with": {
-          "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
-        }
-      },
-      "additionalProperties": false
     }
   },
   "additionalProperties": false
