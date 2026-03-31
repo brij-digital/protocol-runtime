@@ -547,7 +547,6 @@ export async function prepareRuntimeOperation(options: {
   const hydratedInput = hydrateAndValidateRuntimeInputs({
     input: options.input,
     materialized: operation,
-    validate: resolved.spec.validate,
     context: `${options.protocolId}/${options.operationId}`,
   });
   const scope: JsonRecord = {
@@ -635,7 +634,6 @@ export async function runRuntimeCompute(options: {
   const hydratedInput = hydrateAndValidateRuntimeInputs({
     input: options.input,
     materialized: operation,
-    validate: resolved.spec.validate,
     context: `${options.protocolId}/${options.operationId}`,
   });
   const scope: JsonRecord = {

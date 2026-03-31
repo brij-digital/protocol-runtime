@@ -11,13 +11,6 @@ type RuntimeInputSpec = {
   type: string;
   required?: boolean;
   default?: unknown;
-  validate?: {
-    required?: boolean;
-    min?: string | number;
-    max?: string | number;
-    pattern?: string;
-    message?: string;
-  };
   example?: unknown;
   ui_example?: unknown;
 };
@@ -44,14 +37,6 @@ type OutputObjectSchemaSpec = {
 
 type AgentIndexViewSpec = {
   inputs?: Record<string, RuntimeInputSpec>;
-  validate?: {
-    cross?: Array<{
-      kind?: string;
-      left?: string;
-      right?: string;
-      message?: string;
-    }>;
-  };
   read_output?: ReadOutputSpec;
   read: Record<string, unknown>;
 };
@@ -62,14 +47,6 @@ type AgentComputeSpec = {
   resolve?: unknown[];
   compute?: unknown[];
   read_output?: ReadOutputSpec;
-  validate?: {
-    cross?: Array<{
-      kind?: string;
-      left?: string;
-      right?: string;
-      message?: string;
-    }>;
-  };
 };
 
 type AgentExecutionSpec = {
@@ -83,23 +60,6 @@ type AgentExecutionSpec = {
   pre?: unknown[];
   post?: unknown[];
   read_output?: ReadOutputSpec;
-  validate?: {
-    cross?: Array<{
-      kind?: string;
-      left?: string;
-      right?: string;
-      message?: string;
-    }>;
-  };
-};
-
-type RuntimeValidationSpec = {
-  cross?: Array<{
-    kind?: string;
-    left?: string;
-    right?: string;
-    message?: string;
-  }>;
 };
 
 export type RuntimePack = {
@@ -144,13 +104,6 @@ export type RuntimeOperationInputSummary = {
   type: string;
   required: boolean;
   default?: unknown;
-  validate?: {
-    required?: boolean;
-    min?: string | number;
-    max?: string | number;
-    pattern?: string;
-    message?: string;
-  };
 };
 
 export type RuntimeOperationSummary = {
@@ -161,12 +114,6 @@ export type RuntimeOperationSummary = {
   instruction: string;
   executionKind: 'read' | 'compute' | 'write';
   inputs: Record<string, RuntimeOperationInputSummary>;
-  crossValidation?: Array<{
-    kind: 'not_equal';
-    left: string;
-    right: string;
-    message?: string;
-  }>;
   readOutput?: {
     type: 'array' | 'object' | 'scalar' | 'list';
     source: string;
@@ -372,26 +319,6 @@ function normalizeReadOutputSpec(
   };
 }
 
-function normalizeCrossValidation(
-  validate: RuntimeValidationSpec | undefined,
-): RuntimeOperationSummary['crossValidation'] {
-  const rules = Array.isArray(validate?.cross) ? validate.cross : [];
-  const normalized = rules
-    .map((rule) => {
-      if (!rule || rule.kind !== 'not_equal' || typeof rule.left !== 'string' || typeof rule.right !== 'string') {
-        return null;
-      }
-      return {
-        kind: 'not_equal' as const,
-        left: rule.left.trim(),
-        right: rule.right.trim(),
-        ...(typeof rule.message === 'string' && rule.message.trim().length > 0 ? { message: rule.message.trim() } : {}),
-      };
-    })
-    .filter((rule): rule is { kind: 'not_equal'; left: string; right: string; message?: string } => Boolean(rule && rule.left && rule.right));
-  return normalized.length > 0 ? normalized : undefined;
-}
-
 function isIntegerType(type: string): boolean {
   return type === 'u16' || type === 'u32' || type === 'u64' || type === 'i32';
 }
@@ -423,12 +350,6 @@ function validateRuntimeInputValue(inputName: string, inputSpec: RuntimeInputSpe
     case 'string': {
       if (typeof rawValue !== 'string') {
         throw new Error(`${label} must be a string.`);
-      }
-      if (inputSpec.validate?.pattern) {
-        const pattern = new RegExp(inputSpec.validate.pattern);
-        if (!pattern.test(rawValue)) {
-          throw new Error(inputSpec.validate.message ?? `${label} must match ${inputSpec.validate.pattern}.`);
-        }
       }
       return rawValue;
     }
@@ -476,18 +397,6 @@ function validateRuntimeInputValue(inputName: string, inputSpec: RuntimeInputSpe
       if (inputSpec.type === 'i32' && (parsed < -2147483648n || parsed > 2147483647n)) {
         throw new Error(`${label} must fit in i32.`);
       }
-      if (inputSpec.validate?.min !== undefined) {
-        const min = parseBigIntLike(inputSpec.validate.min, `${label}.min`, signed);
-        if (parsed < min) {
-          throw new Error(inputSpec.validate.message ?? `${label} must be >= ${min.toString()}.`);
-        }
-      }
-      if (inputSpec.validate?.max !== undefined) {
-        const max = parseBigIntLike(inputSpec.validate.max, `${label}.max`, signed);
-        if (parsed > max) {
-          throw new Error(inputSpec.validate.message ?? `${label} must be <= ${max.toString()}.`);
-        }
-      }
       return parsed.toString();
     }
     default:
@@ -495,28 +404,9 @@ function validateRuntimeInputValue(inputName: string, inputSpec: RuntimeInputSpe
   }
 }
 
-function validateCrossRules(
-  input: Record<string, unknown>,
-  validate: RuntimeValidationSpec | undefined,
-  context: string,
-): void {
-  const rules = normalizeCrossValidation(validate);
-  if (!rules) {
-    return;
-  }
-  for (const rule of rules) {
-    const left = readPathFromValue({ input }, rule.left);
-    const right = readPathFromValue({ input }, rule.right);
-    if (rule.kind === 'not_equal' && JSON.stringify(left) === JSON.stringify(right)) {
-      throw new Error(rule.message ?? `${context}: ${rule.left} must not equal ${rule.right}.`);
-    }
-  }
-}
-
 export function hydrateAndValidateRuntimeInputs(options: {
   input: Record<string, unknown>;
   materialized: MaterializedRuntimeOperation;
-  validate?: RuntimeValidationSpec;
   context: string;
 }): Record<string, unknown> {
   const hydratedInput: Record<string, unknown> = {};
@@ -530,7 +420,6 @@ export function hydrateAndValidateRuntimeInputs(options: {
     }
     hydratedInput[key] = validateRuntimeInputValue(key, spec, rawValue, options.context);
   }
-  validateCrossRules(hydratedInput, options.validate, options.context);
   return hydratedInput;
 }
 
@@ -580,7 +469,6 @@ export async function listRuntimeOperations(options: {
           type: inputSpec.type,
           required: inputSpec.required !== false,
           ...(inputSpec.default !== undefined ? { default: cloneJsonLike(inputSpec.default) } : {}),
-          ...(inputSpec.validate ? { validate: cloneJsonLike(inputSpec.validate) } : {}),
         },
       ]),
     );
@@ -596,9 +484,6 @@ export async function listRuntimeOperations(options: {
       instruction: materialized.instruction,
       executionKind: kind === 'contract_write' ? 'write' : kind === 'compute' ? 'compute' : 'read',
       inputs,
-      ...(normalizeCrossValidation((spec as AgentIndexViewSpec | AgentComputeSpec | AgentExecutionSpec).validate) ? {
-        crossValidation: normalizeCrossValidation((spec as AgentIndexViewSpec | AgentComputeSpec | AgentExecutionSpec).validate),
-      } : {}),
       ...(normalizeReadOutputSpec(materialized.readOutput, `${options.protocolId}/${operationId}`) ? {
         readOutput: normalizeReadOutputSpec(materialized.readOutput, `${options.protocolId}/${operationId}`),
       } : {}),

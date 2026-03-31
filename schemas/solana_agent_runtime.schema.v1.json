@@ -26,100 +26,13 @@
     "computes": {
       "type": "object",
       "additionalProperties": {
-        "$ref": "#/$defs/computeSpec",
-        "properties": {
-          "instruction": {
-            "type": "string"
-          },
-          "inputs": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/$defs/inputSpec"
-            }
-          },
-          "validate": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "resolve": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/resolveStepSpec"
-            }
-          },
-          "compute": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/computeStepSpec"
-            }
-          },
-          "read_output": {
-            "$ref": "#/$defs/readOutputSpec"
-          }
-        }
+        "$ref": "#/$defs/computeSpec"
       }
     },
     "contract_writes": {
       "type": "object",
       "additionalProperties": {
-        "$ref": "#/$defs/executionSpec",
-        "properties": {
-          "instruction": {
-            "type": "string"
-          },
-          "inputs": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/$defs/inputSpec"
-            }
-          },
-          "validate": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "resolve": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/resolveStepSpec"
-            }
-          },
-          "compute": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/computeStepSpec"
-            }
-          },
-          "args": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/$defs/jsonValue"
-            }
-          },
-          "accounts": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/$defs/jsonValue"
-            }
-          },
-          "remaining_accounts": {
-            "$ref": "#/$defs/jsonValue"
-          },
-          "pre": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/preInstructionSpec"
-            }
-          },
-          "post": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/postInstructionSpec"
-            }
-          },
-          "read_output": {
-            "$ref": "#/$defs/readOutputSpec"
-          }
-        }
+        "$ref": "#/$defs/executionSpec"
       }
     }
   },
@@ -170,7 +83,7 @@
           "type": "string"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "inputSpec": {
       "type": "object",
@@ -186,13 +99,9 @@
         },
         "default": {
           "$ref": "#/$defs/jsonValue"
-        },
-        "validate": {
-          "type": "object",
-          "additionalProperties": true
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "outputFieldSpec": {
       "type": "object",
@@ -210,7 +119,7 @@
           "type": "string"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "outputObjectSchemaSpec": {
       "type": "object",
@@ -265,7 +174,7 @@
           "type": "string"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "indexViewSpec": {
       "type": "object",
@@ -276,39 +185,17 @@
             "$ref": "#/$defs/inputSpec"
           }
         },
-        "validate": {
-          "type": "object",
-          "additionalProperties": true
-        },
         "read_output": {
           "$ref": "#/$defs/readOutputSpec"
         },
         "read": {
-          "type": "object",
-          "required": [
-            "kind"
-          ],
-          "properties": {
-            "kind": {
-              "type": "string",
-              "enum": [
-                "index",
-                "get",
-                "resolve",
-                "feed",
-                "series",
-                "ranking",
-                "context"
-              ]
-            }
-          },
-          "additionalProperties": true
+          "$ref": "#/$defs/readSpec"
         }
       },
       "required": [
         "read"
       ],
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "computeSpec": {
       "type": "object",
@@ -321,10 +208,6 @@
           "additionalProperties": {
             "$ref": "#/$defs/inputSpec"
           }
-        },
-        "validate": {
-          "type": "object",
-          "additionalProperties": true
         },
         "resolve": {
           "type": "array",
@@ -342,7 +225,7 @@
           "$ref": "#/$defs/readOutputSpec"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "executionSpec": {
       "type": "object",
@@ -355,10 +238,6 @@
           "additionalProperties": {
             "$ref": "#/$defs/inputSpec"
           }
-        },
-        "validate": {
-          "type": "object",
-          "additionalProperties": true
         },
         "resolve": {
           "type": "array",
@@ -403,7 +282,45 @@
           "$ref": "#/$defs/readOutputSpec"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
+    },
+    "readCommonSpec": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "entity_type": { "type": "string" },
+        "freshness": {
+          "type": "object",
+          "properties": {
+            "class": { "type": "string" },
+            "target_ms": { "type": "number" },
+            "max_staleness_ms": { "type": "number" }
+          },
+          "required": ["class", "target_ms", "max_staleness_ms"],
+          "additionalProperties": false
+        },
+        "canonical": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        },
+        "projection": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        }
+      }
+    },
+    "readSpec": {
+      "oneOf": [
+        { "allOf": [{ "$ref": "#/$defs/readCommonSpec" }, { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "index" } } }], "unevaluatedProperties": false },
+        { "allOf": [{ "$ref": "#/$defs/readCommonSpec" }, { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "search" } } }], "unevaluatedProperties": false },
+        { "allOf": [{ "$ref": "#/$defs/readCommonSpec" }, { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "get" } } }], "unevaluatedProperties": false },
+        { "allOf": [{ "$ref": "#/$defs/readCommonSpec" }, { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "resolve" } } }], "unevaluatedProperties": false },
+        { "allOf": [{ "$ref": "#/$defs/readCommonSpec" }, { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "feed" } } }], "unevaluatedProperties": false },
+        { "allOf": [{ "$ref": "#/$defs/readCommonSpec" }, { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "series" } } }], "unevaluatedProperties": false },
+        { "allOf": [{ "$ref": "#/$defs/readCommonSpec" }, { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "ranking" } } }], "unevaluatedProperties": false },
+        { "allOf": [{ "$ref": "#/$defs/readCommonSpec" }, { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "context" } } }], "unevaluatedProperties": false }
+      ]
     },
     "metaConditionSpec": {
       "oneOf": [
