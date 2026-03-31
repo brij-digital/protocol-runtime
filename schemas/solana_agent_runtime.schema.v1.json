@@ -119,48 +119,6 @@
       },
       "additionalProperties": true
     },
-    "contractReadSpec": {
-      "type": "object",
-      "properties": {
-        "inputs": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/inputSpec"
-          }
-        },
-        "validate": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "read_output": {
-          "$ref": "#/$defs/readOutputSpec"
-        },
-        "read": {
-          "type": "object",
-          "required": ["kind"],
-          "properties": {
-            "kind": {
-              "type": "string",
-              "enum": ["account", "accounts"]
-            }
-          },
-          "additionalProperties": true
-        }
-      },
-      "required": ["read"],
-      "additionalProperties": true,
-      "allOf": [
-        {
-          "properties": {
-            "read": {
-              "not": {
-                "required": ["bootstrap"]
-              }
-            }
-          }
-        }
-      ]
-    },
     "indexReadSpec": {
       "type": "object",
       "properties": {
@@ -190,42 +148,12 @@
         }
       },
       "required": ["read"],
-      "additionalProperties": true,
-      "allOf": [
-        {
-          "properties": {
-            "read": {
-              "not": {
-                "required": ["bootstrap"]
-              }
-            }
-          }
-        },
-        {
-          "properties": {
-            "read": {
-              "properties": {
-                "source_kind": {
-                  "not": {
-                    "const": "account_changes"
-                  }
-                }
-              }
-            }
-          }
-        }
-      ]
+      "additionalProperties": true
     },
     "readsSpec": {
       "type": "object",
-      "required": ["contract", "index"],
+      "required": ["index"],
       "properties": {
-        "contract": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/contractReadSpec"
-          }
-        },
         "index": {
           "type": "object",
           "additionalProperties": {
@@ -247,10 +175,6 @@
         "validate": {
           "type": "object",
           "additionalProperties": true
-        },
-        "discover": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/jsonValue" }
         },
         "derive": {
           "type": "array",
@@ -283,10 +207,6 @@
         "validate": {
           "type": "object",
           "additionalProperties": true
-        },
-        "discover": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/jsonValue" }
         },
         "derive": {
           "type": "array",

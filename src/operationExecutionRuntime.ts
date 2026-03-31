@@ -5,7 +5,6 @@ import { PublicKey } from '@solana/web3.js';
 import { getProtocolById } from './idlRegistry.js';
 import { previewIdlInstruction } from './idlDeclarativeRuntime.js';
 import { runRegisteredComputeStep } from './metaComputeRegistry.js';
-import { runRegisteredDiscoverStep } from './metaDiscoverRegistry.js';
 import {
   loadProtocolCodamaFromRuntime,
   type CodamaDocument as Idl,
@@ -36,12 +35,6 @@ type DeriveStep = {
 type ComputeStep = {
   name: string;
   compute: string;
-  [key: string]: unknown;
-};
-
-type DiscoverStep = {
-  name: string;
-  discover: string;
   [key: string]: unknown;
 };
 
@@ -619,26 +612,6 @@ async function runComputeStep(step: ComputeStep, ctx: ResolverContext): Promise<
   );
 }
 
-async function runDiscoverStep(step: DiscoverStep, ctx: ResolverContext): Promise<unknown> {
-  const rawStep = asRecord(normalizeRuntimeValue(step), `discover:${step.name}`);
-  const discover = asString(rawStep.discover, `discover:${step.name}:discover`);
-  const resolvedStep =
-    discover === 'discover.pick_list_item_by_value'
-      ? rawStep
-      : asRecord(normalizeRuntimeValue(resolveTemplateValue(step, ctx.scope)), `discover:${step.name}`);
-  return runRegisteredDiscoverStep(
-    { ...resolvedStep, name: step.name, discover },
-    {
-      protocolId: ctx.protocol.id,
-      programId: ctx.protocol.programId,
-      connection: ctx.connection,
-      walletPublicKey: ctx.walletPublicKey,
-      idl: ctx.idl,
-      scope: ctx.scope,
-    },
-  );
-}
-
 export async function prepareRuntimeOperation(options: {
   protocolId: string;
   operationId: string;
@@ -689,12 +662,6 @@ export async function prepareRuntimeOperation(options: {
     walletPublicKey: options.walletPublicKey,
     scope,
   };
-  for (const step of operation.discover as DiscoverStep[]) {
-    const value = await runDiscoverStep(step, resolverCtx);
-    derived[step.name] = value;
-    scope[step.name] = value;
-    scope.derived = derived;
-  }
   for (const step of operation.derive as DeriveStep[]) {
     const value = await runResolver(step, resolverCtx);
     derived[step.name] = value;
@@ -774,12 +741,6 @@ export async function runRuntimeCompute(options: {
     walletPublicKey: options.walletPublicKey,
     scope,
   };
-  for (const step of operation.discover as DiscoverStep[]) {
-    const value = await runDiscoverStep(step, resolverCtx);
-    derived[step.name] = value;
-    scope[step.name] = value;
-    scope.derived = derived;
-  }
   for (const step of operation.derive as DeriveStep[]) {
     const value = await runResolver(step, resolverCtx);
     derived[step.name] = value;

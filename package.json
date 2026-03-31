@@ -1,6 +1,6 @@
 {
   "name": "@brij-digital/apppack-runtime",
-  "version": "0.1.45",
+  "version": "0.1.46",
   "type": "module",
   "repository": {
     "type": "git",
@@ -33,10 +33,6 @@
     "./codamaIdl": {
       "types": "./dist/codamaIdl.d.ts",
       "import": "./dist/codamaIdl.js"
-    },
-    "./node/view-read-service": {
-      "types": "./dist/node/view-read-service.d.ts",
-      "import": "./dist/node/view-read-service.js"
     },
     "./schemas/*": "./schemas/*"
   },

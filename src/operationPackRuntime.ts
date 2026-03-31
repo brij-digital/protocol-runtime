@@ -52,7 +52,7 @@ type ReadOutputSpec = {
   itemLabelFields?: string[];
 };
 
-type AgentContractReadSpec = {
+type AgentIndexReadSpec = {
   inputs?: Record<string, RuntimeInputSpec>;
   validate?: {
     cross?: Array<{
@@ -66,11 +66,8 @@ type AgentContractReadSpec = {
   read: Record<string, unknown>;
 };
 
-type AgentIndexReadSpec = AgentContractReadSpec;
-
 type AgentComputeSpec = {
   inputs?: Record<string, RuntimeInputSpec>;
-  discover?: unknown[];
   derive?: unknown[];
   compute?: unknown[];
   use?: TemplateUseSpec[];
@@ -88,7 +85,6 @@ type AgentComputeSpec = {
 type AgentExecutionSpec = {
   instruction?: string;
   inputs?: Record<string, RuntimeInputSpec>;
-  discover?: unknown[];
   derive?: unknown[];
   compute?: unknown[];
   args?: Record<string, unknown>;
@@ -120,7 +116,6 @@ export type RuntimePack = {
   navigation?: Record<string, unknown>;
   sources?: Record<string, unknown>;
   reads?: {
-    contract?: Record<string, AgentContractReadSpec>;
     index?: Record<string, AgentIndexReadSpec>;
   };
   computes?: Record<string, AgentComputeSpec>;
@@ -128,15 +123,14 @@ export type RuntimePack = {
   templates?: Record<string, TemplateSpec>;
 };
 
-type OperationKind = 'contract_read' | 'index_read' | 'compute' | 'execution';
+type OperationKind = 'index_read' | 'compute' | 'execution';
 
-type RawOperationSpec = AgentContractReadSpec | AgentIndexReadSpec | AgentComputeSpec | AgentExecutionSpec;
+type RawOperationSpec = AgentIndexReadSpec | AgentComputeSpec | AgentExecutionSpec;
 
 export type MaterializedRuntimeOperation = {
   kind: OperationKind;
   instruction: string;
   inputs: Record<string, RuntimeInputSpec>;
-  discover: unknown[];
   derive: unknown[];
   compute: unknown[];
   args: Record<string, unknown>;
@@ -153,7 +147,7 @@ export type RuntimeOperationInputSummary = {
   required: boolean;
   default?: unknown;
   bind_from?: string;
-  read_stage?: 'discover' | 'derive' | 'compute' | 'input' | 'unknown';
+  read_stage?: 'derive' | 'compute' | 'input' | 'unknown';
   validate?: {
     required?: boolean;
     min?: string | number;
@@ -194,7 +188,6 @@ export type RuntimeOperationExplain = {
   instruction: string;
   templateUse: unknown[];
   inputs: Record<string, RuntimeInputSpec>;
-  discover: unknown[];
   derive: unknown[];
   compute: unknown[];
   args: Record<string, unknown>;
@@ -305,9 +298,6 @@ function mergeMaterializedFragment(
   if (fragment.inputs) {
     target.inputs = { ...target.inputs, ...cloneJsonLike(fragment.inputs) };
   }
-  if (fragment.discover) {
-    target.discover.push(...cloneJsonLike(fragment.discover));
-  }
   if (fragment.derive) {
     target.derive.push(...cloneJsonLike(fragment.derive));
   }
@@ -357,10 +347,6 @@ function getRawOperationSpec(
   pack: RuntimePack,
   operationId: string,
 ): { kind: OperationKind; spec: RawOperationSpec } | null {
-  const contractRead = pack.reads?.contract?.[operationId];
-  if (contractRead) {
-    return { kind: 'contract_read', spec: contractRead };
-  }
   const indexRead = pack.reads?.index?.[operationId];
   if (indexRead) {
     return { kind: 'index_read', spec: indexRead };
@@ -382,20 +368,19 @@ export function materializeRuntimeOperation(
   pack: RuntimePack,
   kind: OperationKind,
 ): MaterializedRuntimeOperation {
-  if (kind === 'contract_read' || kind === 'index_read') {
-    const readSpec = cloneJsonLike((operation as AgentContractReadSpec | AgentIndexReadSpec).read);
+  if (kind === 'index_read') {
+    const readSpec = cloneJsonLike((operation as AgentIndexReadSpec).read);
     return {
       kind,
       instruction: '',
-      inputs: cloneJsonLike((operation as AgentContractReadSpec | AgentIndexReadSpec).inputs ?? {}),
-      discover: [],
+      inputs: cloneJsonLike((operation as AgentIndexReadSpec).inputs ?? {}),
       derive: [],
       compute: [],
       args: {},
       accounts: {},
       remainingAccounts: [],
       readSpec,
-      readOutput: cloneJsonLike((operation as AgentContractReadSpec | AgentIndexReadSpec).read_output),
+      readOutput: cloneJsonLike((operation as AgentIndexReadSpec).read_output),
       pre: [],
       post: [],
     };
@@ -405,7 +390,6 @@ export function materializeRuntimeOperation(
     kind,
     instruction: '',
     inputs: {},
-    discover: [],
     derive: [],
     compute: [],
     args: {},
@@ -490,10 +474,10 @@ function isNamedStep(value: unknown, name: string): boolean {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value) && (value as JsonRecord).name === name);
 }
 
-function resolveDiscoverStage(
+function resolveReadStage(
   path: string,
   operation: MaterializedRuntimeOperation,
-): 'discover' | 'derive' | 'compute' | 'input' | 'unknown' {
+): 'derive' | 'compute' | 'input' | 'unknown' {
   const cleaned = path.startsWith('$') ? path.slice(1) : path;
   const parts = cleaned.split('.').filter(Boolean);
   const [root] = parts;
@@ -503,9 +487,6 @@ function resolveDiscoverStage(
   const candidate = root === 'derived' && parts.length > 1 ? parts[1] : root;
   if (root === 'input' || root === 'args') {
     return 'input';
-  }
-  if (operation.discover.some((step) => isNamedStep(step, candidate))) {
-    return 'discover';
   }
   if (operation.derive.some((step) => isNamedStep(step, candidate))) {
     return 'derive';
@@ -554,7 +535,7 @@ export async function listRuntimeOperations(options: {
           type: inputSpec.type,
           required: inputSpec.required !== false,
           ...(inputSpec.default !== undefined ? { default: cloneJsonLike(inputSpec.default) } : {}),
-          ...(typeof inputSpec.bind_from === 'string' ? { bind_from: inputSpec.bind_from, read_stage: resolveDiscoverStage(inputSpec.bind_from, materialized) } : {}),
+          ...(typeof inputSpec.bind_from === 'string' ? { bind_from: inputSpec.bind_from, read_stage: resolveReadStage(inputSpec.bind_from, materialized) } : {}),
           ...(inputSpec.validate ? { validate: cloneJsonLike(inputSpec.validate) } : {}),
         },
       ]),
@@ -565,8 +546,8 @@ export async function listRuntimeOperations(options: {
       instruction: materialized.instruction,
       executionKind: kind === 'execution' ? 'write' : kind === 'compute' ? 'compute' : 'read',
       inputs,
-      ...(normalizeCrossValidation((spec as AgentContractReadSpec | AgentComputeSpec | AgentExecutionSpec).validate) ? {
-        crossValidation: normalizeCrossValidation((spec as AgentContractReadSpec | AgentComputeSpec | AgentExecutionSpec).validate),
+      ...(normalizeCrossValidation((spec as AgentIndexReadSpec | AgentComputeSpec | AgentExecutionSpec).validate) ? {
+        crossValidation: normalizeCrossValidation((spec as AgentIndexReadSpec | AgentComputeSpec | AgentExecutionSpec).validate),
       } : {}),
       ...(normalizeReadOutputSpec(materialized.readOutput, `${options.protocolId}/${operationId}`) ? {
         readOutput: normalizeReadOutputSpec(materialized.readOutput, `${options.protocolId}/${operationId}`),
@@ -574,9 +555,6 @@ export async function listRuntimeOperations(options: {
     });
   };
 
-  for (const [operationId, spec] of Object.entries(pack.reads?.contract ?? {})) {
-    pushSummary(operationId, 'contract_read', spec, materializeRuntimeOperation(operationId, spec, pack, 'contract_read'));
-  }
   for (const [operationId, spec] of Object.entries(pack.reads?.index ?? {})) {
     pushSummary(operationId, 'index_read', spec, materializeRuntimeOperation(operationId, spec, pack, 'index_read'));
   }
@@ -615,7 +593,6 @@ export async function explainRuntimeOperation(options: {
     instruction: materialized.instruction,
     templateUse: cloneJsonLike((resolved.spec as AgentComputeSpec | AgentExecutionSpec).use ?? []),
     inputs: cloneJsonLike(materialized.inputs),
-    discover: cloneJsonLike(materialized.discover),
     derive: cloneJsonLike(materialized.derive),
     compute: cloneJsonLike(materialized.compute),
     args: cloneJsonLike(materialized.args),
