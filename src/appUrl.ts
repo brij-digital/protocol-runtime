@@ -7,6 +7,27 @@ type ImportMetaWithOptionalEnv = ImportMeta & {
   };
 };
 
+function resolveRuntimeBaseUrl(): string {
+  const importMetaBase = (import.meta as ImportMetaWithOptionalEnv).env?.BASE_URL;
+  if (typeof importMetaBase === 'string' && importMetaBase.trim().length > 0) {
+    return importMetaBase;
+  }
+
+  const processBase =
+    typeof process !== 'undefined' && process.env
+      ? process.env.APPPACK_RUNTIME_BASE_URL
+      : undefined;
+  if (typeof processBase === 'string' && processBase.trim().length > 0) {
+    return processBase;
+  }
+
+  if (typeof window === 'undefined') {
+    return 'http://127.0.0.1:8080';
+  }
+
+  return '/';
+}
+
 function normalizeBaseUrl(baseRaw: string | undefined): string {
   const trimmed = (baseRaw ?? '/').trim();
   if (!trimmed) {
@@ -29,7 +50,7 @@ export function resolveAppUrl(url: string): string {
     return withCacheBust(url);
   }
 
-  const base = normalizeBaseUrl((import.meta as ImportMetaWithOptionalEnv).env?.BASE_URL);
+  const base = normalizeBaseUrl(resolveRuntimeBaseUrl());
 
   if (url.startsWith('/')) {
     if (base === '/') {
