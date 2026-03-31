@@ -78,6 +78,83 @@
         }
       ]
     },
+    "runtimeInputSpec": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default": {
+          "$ref": "#/$defs/stringOrTemplate"
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputFieldSpec": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputObjectSchemaSpec": {
+      "type": "object",
+      "required": ["fields"],
+      "properties": {
+        "entity_type": {
+          "type": "string"
+        },
+        "identity_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/outputFieldSpec"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOutputSpec": {
+      "type": "object",
+      "required": ["type", "source"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["array", "object", "scalar", "list"]
+        },
+        "source": {
+          "type": "string"
+        },
+        "object_schema": {
+          "$ref": "#/$defs/outputObjectSchemaSpec"
+        },
+        "item_schema": {
+          "$ref": "#/$defs/outputObjectSchemaSpec"
+        },
+        "scalar_type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
     "decoderArtifactSpec": {
       "type": "object",
       "required": ["kind", "artifact"],
@@ -632,6 +709,15 @@
         "kind": {
           "type": "string",
           "enum": ["search", "account", "feed", "series", "ranking", "context"]
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/runtimeInputSpec"
+          }
+        },
+        "read_output": {
+          "$ref": "#/$defs/readOutputSpec"
         },
         "source_kind": { "type": "string" },
         "freshness": { "type": "object", "additionalProperties": true },

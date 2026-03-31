@@ -1,5 +1,6 @@
 import {
   getProtocolById,
+  loadProtocolIndexingSpec,
   loadProtocolAgentRuntime,
   type ProtocolManifest,
 } from './idlRegistry.js';
@@ -217,11 +218,31 @@ export async function loadRuntimePack(protocolId: string): Promise<RuntimePack> 
   if (cached) {
     return cached;
   }
+  const manifest = await getProtocolById(protocolId);
   const runtime = await loadProtocolAgentRuntime(protocolId);
   if (!runtime) {
     throw new Error(`Protocol ${protocolId} has no agentRuntimePath.`);
   }
+  const indexing = await loadProtocolIndexingSpec(protocolId);
+  if (!manifest.codamaIdlPath) {
+    throw new Error(`Protocol ${protocolId} has no codamaIdlPath in registry.`);
+  }
   const parsed = runtime as unknown as RuntimePack;
+  parsed.protocol = {
+    protocolId,
+    programId: manifest.programId,
+    codamaPath: manifest.codamaIdlPath,
+  };
+  parsed.index_views = Object.fromEntries(
+    Object.entries(indexing?.operations ?? {})
+      .flatMap(([operationId, operation]) => {
+        const indexView = (operation as { index_view?: AgentIndexViewSpec }).index_view;
+        return indexView ? [[operationId, {
+          ...(indexView.inputs ? { inputs: cloneJsonLike(indexView.inputs) } : {}),
+          ...(indexView.read_output ? { read_output: cloneJsonLike(indexView.read_output) } : {}),
+        } satisfies AgentIndexViewSpec]] : [];
+      }),
+  );
   runtimePackCache.set(protocolId, parsed);
   return parsed;
 }

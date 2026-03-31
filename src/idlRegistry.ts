@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { resolveAppUrl } from './appUrl.js';
 
 export type ProtocolManifest = {
@@ -23,28 +25,73 @@ type RuntimeDecoderArtifact = {
   codamaPath?: string;
 };
 
+type RuntimeInputSpec = {
+  type: string;
+  required?: boolean;
+  default?: unknown;
+};
+
+type ReadOutputSpec = {
+  type: 'array' | 'object' | 'scalar' | 'list';
+  source: string;
+  object_schema?: Record<string, unknown>;
+  item_schema?: Record<string, unknown>;
+  scalar_type?: string;
+};
+
 type IndexingSpecShape = {
   schema: string;
   protocolId: string;
   decoderArtifacts?: Record<string, RuntimeDecoderArtifact>;
+  operations?: Record<string, {
+    index_view?: {
+      kind?: string;
+      inputs?: Record<string, RuntimeInputSpec>;
+      read_output?: ReadOutputSpec;
+    };
+  }>;
 };
 
 type AgentRuntimeShape = {
   schema: string;
   protocol: {
     protocolId?: string;
-    programId?: string;
-    codamaPath?: string;
   };
+  computes?: Record<string, unknown>;
+  contract_writes?: Record<string, unknown>;
 };
 
 let registryCache: RegistryShape | null = null;
 const indexingSpecCache = new Map<string, IndexingSpecShape | null>();
 const agentRuntimeCache = new Map<string, AgentRuntimeShape | null>();
 
+function resolveLocalRegistryPath(): string | null {
+  if (typeof window !== 'undefined') {
+    return null;
+  }
+  const explicit = typeof process !== 'undefined' && process.env
+    ? process.env.APPPACK_RUNTIME_REGISTRY_PATH
+    : undefined;
+  if (typeof explicit !== 'string' || explicit.trim().length === 0) {
+    return null;
+  }
+  return path.resolve(explicit.trim());
+}
+
+function readLocalJson<T>(absolutePath: string): T {
+  return JSON.parse(fs.readFileSync(absolutePath, 'utf8')) as T;
+}
+
 export async function loadRegistry(): Promise<RegistryShape> {
   if (registryCache) {
     return registryCache;
+  }
+
+  const localRegistryPath = resolveLocalRegistryPath();
+  if (localRegistryPath) {
+    const parsed = readLocalJson<RegistryShape>(localRegistryPath);
+    registryCache = parsed;
+    return parsed;
   }
 
   const response = await fetch(resolveAppUrl('/idl/registry.json'));
@@ -72,6 +119,15 @@ export async function getProtocolById(protocolId: string): Promise<ProtocolManif
 }
 
 async function loadJsonByPath<T>(filePath: string): Promise<T> {
+  const localRegistryPath = resolveLocalRegistryPath();
+  if (localRegistryPath) {
+    if (!filePath.startsWith('/idl/')) {
+      throw new Error(`Local runtime registry only supports /idl/* JSON paths. Got ${filePath}.`);
+    }
+    const resolvedPath = path.resolve(path.dirname(localRegistryPath), filePath.slice('/idl/'.length));
+    return readLocalJson<T>(resolvedPath);
+  }
+
   const response = await fetch(resolveAppUrl(filePath));
   if (!response.ok) {
     throw new Error(`Failed to load JSON from ${filePath}.`);

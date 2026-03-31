@@ -6,7 +6,6 @@
   "required": [
     "schema",
     "protocol",
-    "index_views",
     "computes",
     "contract_writes"
   ],
@@ -16,12 +15,6 @@
     },
     "protocol": {
       "$ref": "#/$defs/protocolSpec"
-    },
-    "index_views": {
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/$defs/indexViewSpec"
-      }
     },
     "computes": {
       "type": "object",
@@ -68,18 +61,10 @@
     "protocolSpec": {
       "type": "object",
       "required": [
-        "protocolId",
-        "programId",
-        "codamaPath"
+        "protocolId"
       ],
       "properties": {
         "protocolId": {
-          "type": "string"
-        },
-        "programId": {
-          "type": "string"
-        },
-        "codamaPath": {
           "type": "string"
         }
       },
@@ -176,20 +161,37 @@
       },
       "additionalProperties": false
     },
-    "indexViewSpec": {
+    "accountBindingSpec": {
+      "type": "string"
+    },
+    "remainingAccountMetaSpec": {
       "type": "object",
+      "required": ["pubkey"],
       "properties": {
-        "inputs": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/inputSpec"
-          }
+        "pubkey": {
+          "type": "string"
         },
-        "read_output": {
-          "$ref": "#/$defs/readOutputSpec"
+        "isSigner": {
+          "type": "boolean"
+        },
+        "isWritable": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
+    },
+    "remainingAccountsSpec": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/remainingAccountMetaSpec"
+          }
+        }
+      ]
     },
     "computeSpec": {
       "type": "object",
@@ -254,11 +256,11 @@
         "accounts": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/$defs/jsonValue"
+            "$ref": "#/$defs/accountBindingSpec"
           }
         },
         "remaining_accounts": {
-          "$ref": "#/$defs/jsonValue"
+          "$ref": "#/$defs/remainingAccountsSpec"
         },
         "pre": {
           "type": "array",
