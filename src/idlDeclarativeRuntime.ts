@@ -660,25 +660,31 @@ export async function sendIdlInstruction(options: {
   postInstructions?: TransactionInstruction[];
   connection: Connection;
   wallet: WalletContextState;
+  onStatus?: (status: 'preparing' | 'simulating' | 'awaiting_wallet_approval' | 'submitting' | 'confirming' | 'confirmed') => void;
 }): Promise<{ signature: string; explorerUrl: string }> {
   if (!options.wallet.signTransaction) {
     throw new Error('Connected wallet does not support transaction signing.');
   }
 
+  options.onStatus?.('preparing');
   const { tx, latestBlockhash } = await prepareSignedIdlTransaction(options);
 
+  options.onStatus?.('simulating');
   const simulation = await options.connection.simulateTransaction(tx);
 
   if (simulation.value.err) {
     throw new Error(formatSimulationError(simulation));
   }
 
+  options.onStatus?.('awaiting_wallet_approval');
   const signedTx = await options.wallet.signTransaction(tx);
+  options.onStatus?.('submitting');
   const signature = await options.connection.sendRawTransaction(signedTx.serialize(), {
     skipPreflight: false,
     maxRetries: 3,
   });
 
+  options.onStatus?.('confirming');
   await options.connection.confirmTransaction(
     {
       signature,
@@ -687,6 +693,8 @@ export async function sendIdlInstruction(options: {
     },
     'confirmed',
   );
+
+  options.onStatus?.('confirmed');
 
   return {
     signature,
