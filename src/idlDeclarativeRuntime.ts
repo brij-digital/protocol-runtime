@@ -18,6 +18,7 @@ import {
   findCodamaTypeDefByName,
   loadProtocolCodamaFromRuntime,
   type CodamaDocument as Idl,
+  type CodamaInstructionAccountDefault,
 } from './codamaIdl.js';
 import { DirectAccountsCoder } from './directAccountsCoder.js';
 import { DirectInstructionCoder } from './directInstructionCoder.js';
@@ -32,6 +33,7 @@ type IdlInstructionAccount = {
   optional?: boolean;
   isOptional?: boolean;
   address?: string;
+  defaultValue?: CodamaInstructionAccountDefault;
   accounts?: IdlInstructionAccount[];
 };
 
@@ -336,41 +338,102 @@ function resolveAccountPubkey(
   return new PublicKey(value);
 }
 
+function findSeedAccountKeyName(
+  flattened: Array<{ keyName: string; definition: IdlInstructionAccount }>,
+  accountName: string,
+): string | null {
+  const matches = flattened.filter(
+    ({ keyName, definition }) => keyName === accountName || definition.name === accountName,
+  );
+  if (matches.length === 0) {
+    return null;
+  }
+  if (matches.length > 1) {
+    throw new Error(`Ambiguous Codama PDA seed account reference ${accountName}.`);
+  }
+  return matches[0]!.keyName;
+}
+
 function buildAccountMetas(options: {
   idlInstruction: IdlInstruction;
   accountsInput: Record<string, string>;
   walletPublicKey: PublicKey;
+  programId: string;
 }): AccountMeta[] {
   const flattened = flattenInstructionAccounts(options.idlInstruction.accounts);
+  const flattenedByKey = new Map(flattened.map((entry) => [entry.keyName, entry]));
+  const resolved = new Map<string, PublicKey | null>();
+  const programId = new PublicKey(options.programId);
+
+  function resolveFlattenedAccount(keyName: string, resolving: Set<string>): PublicKey | null {
+    if (resolved.has(keyName)) {
+      return resolved.get(keyName)!;
+    }
+
+    const entry = flattenedByKey.get(keyName);
+    if (!entry) {
+      throw new Error(`Unknown instruction account ${keyName}.`);
+    }
+
+    if (resolving.has(keyName)) {
+      throw new Error(`Cyclic Codama account default resolution for ${keyName}.`);
+    }
+
+    resolving.add(keyName);
+    const { definition } = entry;
+    const signer = Boolean(definition.signer ?? definition.isSigner);
+    const optional = Boolean(definition.optional ?? definition.isOptional);
+
+    const rawValue =
+      definition.address ??
+      options.accountsInput[keyName] ??
+      options.accountsInput[definition.name] ??
+      (signer ? '$WALLET' : undefined);
+
+    let pubkey: PublicKey | null = null;
+    if (rawValue) {
+      pubkey = resolveAccountPubkey(rawValue, options.walletPublicKey);
+    } else if (definition.defaultValue?.kind === 'address') {
+      pubkey = new PublicKey(definition.defaultValue.address);
+    } else if (definition.defaultValue?.kind === 'pda') {
+      const seedBuffers = definition.defaultValue.seeds.map((seed) => {
+        if (seed.kind === 'constant_bytes') {
+          return Buffer.from(seed.bytes);
+        }
+        const seedAccountKeyName = findSeedAccountKeyName(flattened, seed.name);
+        if (!seedAccountKeyName) {
+          throw new Error(`Unknown Codama PDA seed account ${seed.name} for ${keyName}.`);
+        }
+        const seedPubkey = resolveFlattenedAccount(seedAccountKeyName, resolving);
+        if (!seedPubkey) {
+          throw new Error(`Codama PDA seed account ${seed.name} for ${keyName} resolved to null.`);
+        }
+        return seedPubkey.toBuffer();
+      });
+      pubkey = PublicKey.findProgramAddressSync(seedBuffers, programId)[0];
+    } else if (!optional) {
+      throw new Error(`Missing account mapping for ${keyName}.`);
+    }
+
+    if (pubkey && signer && !pubkey.equals(options.walletPublicKey)) {
+      throw new Error(
+        `Unsupported signer ${keyName}: only the connected wallet signer is currently supported.`,
+      );
+    }
+
+    resolved.set(keyName, pubkey);
+    resolving.delete(keyName);
+    return pubkey;
+  }
 
   return flattened
     .map(({ keyName, definition }) => {
       const signer = Boolean(definition.signer ?? definition.isSigner);
       const writable = Boolean(definition.writable ?? definition.isMut);
-      const optional = Boolean(definition.optional ?? definition.isOptional);
-
-      const rawValue =
-        definition.address ??
-        options.accountsInput[keyName] ??
-        options.accountsInput[definition.name] ??
-        (signer ? '$WALLET' : undefined);
-
-      if (!rawValue) {
-        if (optional) {
-          return null;
-        }
-
-        throw new Error(`Missing account mapping for ${keyName}.`);
+      const pubkey = resolveFlattenedAccount(keyName, new Set());
+      if (!pubkey) {
+        return null;
       }
-
-      const pubkey = resolveAccountPubkey(rawValue, options.walletPublicKey);
-
-      if (signer && !pubkey.equals(options.walletPublicKey)) {
-        throw new Error(
-          `Unsupported signer ${keyName}: only the connected wallet signer is currently supported.`,
-        );
-      }
-
       return {
         pubkey,
         isSigner: signer,
@@ -542,6 +605,12 @@ export async function getInstructionTemplate(options: {
       if (definition.address) {
         return [keyName, definition.address];
       }
+      if (definition.defaultValue?.kind === 'address') {
+        return [keyName, definition.defaultValue.address];
+      }
+      if (definition.defaultValue?.kind === 'pda') {
+        return [keyName, `<AUTO_PDA:${definition.defaultValue.pdaName}>`];
+      }
 
       const signer = Boolean(definition.signer ?? definition.isSigner);
       return [keyName, signer ? '$WALLET' : '<PUBKEY>'];
@@ -620,6 +689,7 @@ async function prepareSignedIdlTransaction(options: {
     idlInstruction: instruction,
     accountsInput: options.accounts,
     walletPublicKey: options.wallet.publicKey,
+    programId: protocol.programId,
   });
   const remainingMetas = buildRemainingAccountMetas(options.remainingAccounts);
 
@@ -779,6 +849,7 @@ export async function previewIdlInstruction(options: {
     idlInstruction: instruction,
     accountsInput: options.accounts,
     walletPublicKey: options.walletPublicKey,
+    programId: protocol.programId,
   });
   const remainingMetas = buildRemainingAccountMetas(options.remainingAccounts);
   const allMetas = [...accountMetas, ...remainingMetas];

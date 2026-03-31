@@ -1,5 +1,6 @@
 import { resolveAppUrl } from './appUrl.js';
 import { getProtocolById } from './idlRegistry.js';
+import bs58 from 'bs58';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -18,7 +19,29 @@ export type CodamaInstructionAccountDef = {
   signer?: boolean;
   optional?: boolean;
   address?: string;
+  defaultValue?: CodamaInstructionAccountDefault;
 };
+
+export type CodamaInstructionAccountDefault =
+  | {
+      kind: 'address';
+      address: string;
+    }
+  | {
+      kind: 'pda';
+      pdaName: string;
+      seeds: CodamaPdaSeedDef[];
+    };
+
+export type CodamaPdaSeedDef =
+  | {
+      kind: 'constant_bytes';
+      bytes: number[];
+    }
+  | {
+      kind: 'account';
+      name: string;
+    };
 
 export type CodamaInstructionArgDef = {
   name: string;
@@ -51,6 +74,7 @@ const protocolCodamaCache = new Map<string, Promise<CodamaDocument>>();
 const instructionCache = new WeakMap<JsonRecord, CodamaInstructionDef[]>();
 const accountCache = new WeakMap<JsonRecord, CodamaAccountDef[]>();
 const typeDefCache = new WeakMap<JsonRecord, CodamaTypeDef[]>();
+const pdaCache = new WeakMap<JsonRecord, Map<string, CodamaPdaSeedDef[]>>();
 
 function asObject(value: unknown, label: string): JsonRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -102,6 +126,26 @@ function extractBytes(value: unknown, label: string): number[] {
     bytes.push(Number.parseInt(data.slice(index, index + 2), 16));
   }
   return bytes;
+}
+
+function extractBytesValueNode(value: unknown, label: string): number[] {
+  const node = asObject(value, label);
+  const encoding = asString(node.encoding, `${label}.encoding`);
+  const data = asString(node.data, `${label}.data`);
+  if (encoding === 'base16') {
+    if (data.length % 2 !== 0) {
+      throw new Error(`${label}.data must have even hex length.`);
+    }
+    const bytes: number[] = [];
+    for (let index = 0; index < data.length; index += 2) {
+      bytes.push(Number.parseInt(data.slice(index, index + 2), 16));
+    }
+    return bytes;
+  }
+  if (encoding === 'base58') {
+    return Array.from(bs58.decode(data));
+  }
+  throw new Error(`${label}.encoding must be base16 or base58.`);
 }
 
 function extractDiscriminatorField(fields: unknown[], label: string): number[] {
@@ -247,7 +291,26 @@ function convertInstructionAccount(account: unknown, context: string): CodamaIns
   }
   const defaultValue = entry.defaultValue ? asObject(entry.defaultValue, `${context}.defaultValue`) : null;
   if (defaultValue?.kind === 'publicKeyValueNode') {
-    output.address = asString(defaultValue.publicKey, `${context}.defaultValue.publicKey`);
+    const address = asString(defaultValue.publicKey, `${context}.defaultValue.publicKey`);
+    output.address = address;
+    output.defaultValue = {
+      kind: 'address',
+      address,
+    };
+    return output;
+  }
+  if (defaultValue?.kind === 'pdaValueNode') {
+    const pdaRef = asObject(defaultValue.pda, `${context}.defaultValue.pda`);
+    const pdaName = toSnakeCase(asString(pdaRef.name, `${context}.defaultValue.pda.name`));
+    const seeds = listCodamaPdas(entry.__codamaProgram as JsonRecord).get(pdaName);
+    if (!seeds) {
+      throw new Error(`${context}.defaultValue.pda references unknown PDA ${pdaName}.`);
+    }
+    output.defaultValue = {
+      kind: 'pda',
+      pdaName,
+      seeds,
+    };
   }
   return output;
 }
@@ -264,7 +327,10 @@ function convertInstruction(instruction: unknown, context: string): CodamaInstru
     name: toSnakeCase(asString(entry.name, `${context}.name`)),
     discriminator,
     accounts: asArray(entry.accounts, `${context}.accounts`).map((account, index) =>
-      convertInstructionAccount(account, `${context}.accounts[${index}]`),
+      convertInstructionAccount(
+        { ...asObject(account, `${context}.accounts[${index}]`), __codamaProgram: asObject((entry as JsonRecord).__codamaProgram, `${context}.__codamaProgram`) },
+        `${context}.accounts[${index}]`,
+      ),
     ),
     args: argumentsNode
       .filter((argument) => asObject(argument, `${context}.arguments`).name !== 'discriminator')
@@ -276,6 +342,37 @@ function convertInstruction(instruction: unknown, context: string): CodamaInstru
         };
       }),
   };
+}
+
+function listCodamaPdas(program: JsonRecord): Map<string, CodamaPdaSeedDef[]> {
+  const cached = pdaCache.get(program);
+  if (cached) {
+    return cached;
+  }
+  const pdas = new Map<string, CodamaPdaSeedDef[]>();
+  for (const [index, pda] of asArray(program.pdas ?? [], 'codama.program.pdas').entries()) {
+    const entry = asObject(pda, `codama.program.pdas[${index}]`);
+    const name = toSnakeCase(asString(entry.name, `codama.program.pdas[${index}].name`));
+    const seeds = asArray(entry.seeds ?? [], `codama.program.pdas[${index}].seeds`).map((seed, seedIndex) => {
+      const seedNode = asObject(seed, `codama.program.pdas[${index}].seeds[${seedIndex}]`);
+      if (seedNode.kind === 'constantPdaSeedNode') {
+        return {
+          kind: 'constant_bytes' as const,
+          bytes: extractBytesValueNode(seedNode.value, `codama.program.pdas[${index}].seeds[${seedIndex}].value`),
+        };
+      }
+      if (seedNode.kind === 'variablePdaSeedNode') {
+        return {
+          kind: 'account' as const,
+          name: toSnakeCase(asString(seedNode.name, `codama.program.pdas[${index}].seeds[${seedIndex}].name`)),
+        };
+      }
+      throw new Error(`codama.program.pdas[${index}].seeds[${seedIndex}] kind ${String(seedNode.kind)} is unsupported.`);
+    });
+    pdas.set(name, seeds);
+  }
+  pdaCache.set(program, pdas);
+  return pdas;
 }
 
 function convertAccount(account: unknown, context: string): CodamaAccountDef {
@@ -347,7 +444,10 @@ export function listCodamaInstructions(codama: CodamaDocument): CodamaInstructio
   }
   const program = getProgram(codama);
   const instructions = asArray(program.instructions ?? [], 'codama.program.instructions').map((instruction, index) =>
-    convertInstruction(instruction, `codama.program.instructions[${index}]`),
+    convertInstruction(
+      { ...asObject(instruction, `codama.program.instructions[${index}]`), __codamaProgram: program },
+      `codama.program.instructions[${index}]`,
+    ),
   );
   instructionCache.set(codama, instructions);
   return instructions;
