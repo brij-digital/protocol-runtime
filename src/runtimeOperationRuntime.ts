@@ -4,7 +4,12 @@ export {
   prepareRuntimeOperation,
   runRuntimeCompute,
 } from './operationExecutionRuntime.js';
-export { listRuntimeOperations } from './operationPackRuntime.js';
+export {
+  hydrateAndValidateRuntimeInputs,
+  listRuntimeOperations,
+  resolveRuntimeOperationFromPack,
+  resolveRuntimeOperation,
+} from './operationPackRuntime.js';
 
 export type {
   PreparedMetaInstruction,
@@ -12,6 +17,7 @@ export type {
   PreparedMetaOperation,
 } from './operationExecutionRuntime.js';
 export type {
+  ResolvedRuntimeOperation,
   RuntimeOperationExplain,
   RuntimeOperationInputSummary,
   RuntimeOperationSummary,

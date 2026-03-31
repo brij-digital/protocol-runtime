@@ -3,6 +3,7 @@ import {
   loadProtocolAgentRuntime,
   type ProtocolManifest,
 } from './idlRegistry.js';
+import { PublicKey } from '@solana/web3.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -119,6 +120,15 @@ type AgentExecutionSpec = {
   };
 };
 
+type RuntimeValidationSpec = {
+  cross?: Array<{
+    kind?: string;
+    left?: string;
+    right?: string;
+    message?: string;
+  }>;
+};
+
 export type RuntimePack = {
   schema: 'solana-agent-runtime.v1';
   version: string;
@@ -139,6 +149,13 @@ export type RuntimePack = {
 type OperationKind = 'index_view' | 'compute' | 'contract_write';
 
 type RawOperationSpec = AgentIndexViewSpec | AgentComputeSpec | AgentExecutionSpec;
+
+export type ResolvedRuntimeOperation = {
+  pack: RuntimePack;
+  kind: OperationKind;
+  spec: RawOperationSpec;
+  materialized: MaterializedRuntimeOperation;
+};
 
 export type MaterializedRuntimeOperation = {
   kind: OperationKind;
@@ -525,7 +542,7 @@ function resolveReadStage(
 }
 
 function normalizeCrossValidation(
-  validate: { cross?: Array<{ kind?: string; left?: string; right?: string; message?: string }> } | undefined,
+  validate: RuntimeValidationSpec | undefined,
 ): RuntimeOperationSummary['crossValidation'] {
   const rules = Array.isArray(validate?.cross) ? validate.cross : [];
   const normalized = rules
@@ -542,6 +559,178 @@ function normalizeCrossValidation(
     })
     .filter((rule): rule is { kind: 'not_equal'; left: string; right: string; message?: string } => Boolean(rule && rule.left && rule.right));
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function isIntegerType(type: string): boolean {
+  return type === 'u16' || type === 'u32' || type === 'u64' || type === 'i32';
+}
+
+function parseBigIntLike(value: unknown, label: string, signed: boolean): bigint {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || !Number.isInteger(value)) {
+      throw new Error(`${label} must be an integer.`);
+    }
+    return BigInt(value);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const pattern = signed ? /^-?\d+$/ : /^\d+$/;
+    if (!pattern.test(trimmed)) {
+      throw new Error(`${label} must be an integer string.`);
+    }
+    return BigInt(trimmed);
+  }
+  throw new Error(`${label} must be an integer-compatible value.`);
+}
+
+function validateRuntimeInputValue(inputName: string, inputSpec: RuntimeInputSpec, rawValue: unknown, context: string): unknown {
+  const label = `${context}.${inputName}`;
+  switch (inputSpec.type) {
+    case 'string': {
+      if (typeof rawValue !== 'string') {
+        throw new Error(`${label} must be a string.`);
+      }
+      if (inputSpec.validate?.pattern) {
+        const pattern = new RegExp(inputSpec.validate.pattern);
+        if (!pattern.test(rawValue)) {
+          throw new Error(inputSpec.validate.message ?? `${label} must match ${inputSpec.validate.pattern}.`);
+        }
+      }
+      return rawValue;
+    }
+    case 'bool': {
+      if (typeof rawValue === 'boolean') {
+        return rawValue;
+      }
+      if (typeof rawValue === 'string') {
+        const normalized = rawValue.trim().toLowerCase();
+        if (normalized === 'true') {
+          return true;
+        }
+        if (normalized === 'false') {
+          return false;
+        }
+      }
+      throw new Error(`${label} must be a boolean.`);
+    }
+    case 'pubkey':
+    case 'token_mint': {
+      if (typeof rawValue !== 'string') {
+        throw new Error(`${label} must be a base58 public key string.`);
+      }
+      try {
+        return new PublicKey(rawValue).toBase58();
+      } catch {
+        throw new Error(`${label} must be a valid ${inputSpec.type} base58 public key.`);
+      }
+    }
+    case 'u16':
+    case 'u32':
+    case 'u64':
+    case 'i32': {
+      const signed = inputSpec.type === 'i32';
+      const parsed = parseBigIntLike(rawValue, label, signed);
+      if (!signed && parsed < 0n) {
+        throw new Error(`${label} must be non-negative.`);
+      }
+      if (inputSpec.type === 'u16' && (parsed < 0n || parsed > 65535n)) {
+        throw new Error(`${label} must fit in u16.`);
+      }
+      if (inputSpec.type === 'u32' && (parsed < 0n || parsed > 4294967295n)) {
+        throw new Error(`${label} must fit in u32.`);
+      }
+      if (inputSpec.type === 'i32' && (parsed < -2147483648n || parsed > 2147483647n)) {
+        throw new Error(`${label} must fit in i32.`);
+      }
+      if (inputSpec.validate?.min !== undefined) {
+        const min = parseBigIntLike(inputSpec.validate.min, `${label}.min`, signed);
+        if (parsed < min) {
+          throw new Error(inputSpec.validate.message ?? `${label} must be >= ${min.toString()}.`);
+        }
+      }
+      if (inputSpec.validate?.max !== undefined) {
+        const max = parseBigIntLike(inputSpec.validate.max, `${label}.max`, signed);
+        if (parsed > max) {
+          throw new Error(inputSpec.validate.message ?? `${label} must be <= ${max.toString()}.`);
+        }
+      }
+      return parsed.toString();
+    }
+    default:
+      return rawValue;
+  }
+}
+
+function validateCrossRules(
+  input: Record<string, unknown>,
+  validate: RuntimeValidationSpec | undefined,
+  context: string,
+): void {
+  const rules = normalizeCrossValidation(validate);
+  if (!rules) {
+    return;
+  }
+  for (const rule of rules) {
+    const left = readPathFromValue({ input }, rule.left);
+    const right = readPathFromValue({ input }, rule.right);
+    if (rule.kind === 'not_equal' && JSON.stringify(left) === JSON.stringify(right)) {
+      throw new Error(rule.message ?? `${context}: ${rule.left} must not equal ${rule.right}.`);
+    }
+  }
+}
+
+export function hydrateAndValidateRuntimeInputs(options: {
+  input: Record<string, unknown>;
+  materialized: MaterializedRuntimeOperation;
+  validate?: RuntimeValidationSpec;
+  context: string;
+}): Record<string, unknown> {
+  const hydratedInput: Record<string, unknown> = {};
+  for (const [key, spec] of Object.entries(options.materialized.inputs)) {
+    const rawValue = options.input[key] !== undefined ? options.input[key] : spec.default;
+    if (rawValue === undefined) {
+      if (spec.required !== false) {
+        throw new Error(`Missing required runtime input: ${key}`);
+      }
+      continue;
+    }
+    hydratedInput[key] = validateRuntimeInputValue(key, spec, rawValue, options.context);
+  }
+  validateCrossRules(hydratedInput, options.validate, options.context);
+  return hydratedInput;
+}
+
+export async function resolveRuntimeOperation(options: {
+  protocolId: string;
+  operationId: string;
+}): Promise<ResolvedRuntimeOperation> {
+  const pack = await loadRuntimePack(options.protocolId);
+  return resolveRuntimeOperationFromPack({
+    pack,
+    protocolId: options.protocolId,
+    operationId: options.operationId,
+  });
+}
+
+export function resolveRuntimeOperationFromPack(options: {
+  pack: RuntimePack;
+  protocolId: string;
+  operationId: string;
+}): ResolvedRuntimeOperation {
+  const pack = options.pack;
+  const resolved = getRawOperationSpec(pack, options.operationId);
+  if (!resolved) {
+    throw new Error(`Operation ${options.operationId} not found in agent runtime pack for ${options.protocolId}.`);
+  }
+  return {
+    pack,
+    kind: resolved.kind,
+    spec: resolved.spec,
+    materialized: materializeRuntimeOperation(options.operationId, resolved.spec, pack, resolved.kind),
+  };
 }
 
 export async function listRuntimeOperations(options: {

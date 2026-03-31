@@ -11,12 +11,12 @@ import {
 } from './codamaIdl.js';
 import { DirectAccountsCoder } from './directAccountsCoder.js';
 import {
+  hydrateAndValidateRuntimeInputs,
   type MaterializedRuntimeOperation,
   type RuntimeOperationExplain,
   type RuntimePack,
   explainRuntimeOperation,
-  loadRuntimePack,
-  materializeRuntimeOperation,
+  resolveRuntimeOperation,
 } from './operationPackRuntime.js';
 import { resolveAppUrl } from './appUrl.js';
 
@@ -654,27 +654,22 @@ export async function prepareRuntimeOperation(options: {
   walletPublicKey: PublicKey;
 }): Promise<PreparedMetaOperation> {
   const protocol = await getProtocolById(options.protocolId);
-  const runtime = await loadRuntimePack(options.protocolId);
+  const resolved = await resolveRuntimeOperation({
+    protocolId: options.protocolId,
+    operationId: options.operationId,
+  });
+  if (resolved.kind !== 'contract_write') {
+    throw new Error(`Operation ${options.operationId} is not a contract write.`);
+  }
+  const runtime = resolved.pack;
   const idl = await loadProtocolIdl(options.protocolId);
-  const operationSpec = runtime.contract_writes?.[options.operationId];
-  if (!operationSpec) {
-    throw new Error(`Contract write ${options.operationId} not found in agent runtime pack for ${options.protocolId}.`);
-  }
-  const operation = materializeRuntimeOperation(options.operationId, operationSpec, runtime, 'contract_write');
-  const hydratedInput: Record<string, unknown> = {};
-  for (const [key, spec] of Object.entries(operation.inputs)) {
-    if (options.input[key] !== undefined) {
-      hydratedInput[key] = options.input[key];
-      continue;
-    }
-    if (spec.default !== undefined) {
-      hydratedInput[key] = spec.default;
-      continue;
-    }
-    if (spec.required !== false) {
-      throw new Error(`Missing required runtime input: ${key}`);
-    }
-  }
+  const operation = resolved.materialized;
+  const hydratedInput = hydrateAndValidateRuntimeInputs({
+    input: options.input,
+    materialized: operation,
+    validate: resolved.spec.validate,
+    context: `${options.protocolId}/${options.operationId}`,
+  });
   const scope: JsonRecord = {
     input: hydratedInput,
     protocol: {
@@ -733,27 +728,22 @@ export async function runRuntimeCompute(options: {
   walletPublicKey: PublicKey;
 }): Promise<PreparedMetaCompute> {
   const protocol = await getProtocolById(options.protocolId);
-  const runtime = await loadRuntimePack(options.protocolId);
+  const resolved = await resolveRuntimeOperation({
+    protocolId: options.protocolId,
+    operationId: options.operationId,
+  });
+  if (resolved.kind !== 'compute') {
+    throw new Error(`Operation ${options.operationId} is not a compute capability.`);
+  }
+  const runtime = resolved.pack;
   const idl = await loadProtocolIdl(options.protocolId);
-  const operationSpec = runtime.computes?.[options.operationId];
-  if (!operationSpec) {
-    throw new Error(`Compute ${options.operationId} not found in agent runtime pack for ${options.protocolId}.`);
-  }
-  const operation = materializeRuntimeOperation(options.operationId, operationSpec, runtime, 'compute');
-  const hydratedInput: Record<string, unknown> = {};
-  for (const [key, spec] of Object.entries(operation.inputs)) {
-    if (options.input[key] !== undefined) {
-      hydratedInput[key] = options.input[key];
-      continue;
-    }
-    if (spec.default !== undefined) {
-      hydratedInput[key] = spec.default;
-      continue;
-    }
-    if (spec.required !== false) {
-      throw new Error(`Missing required runtime input: ${key}`);
-    }
-  }
+  const operation = resolved.materialized;
+  const hydratedInput = hydrateAndValidateRuntimeInputs({
+    input: options.input,
+    materialized: operation,
+    validate: resolved.spec.validate,
+    context: `${options.protocolId}/${options.operationId}`,
+  });
   const scope: JsonRecord = {
     input: hydratedInput,
     protocol: {
