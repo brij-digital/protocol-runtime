@@ -273,10 +273,15 @@
       "properties": {
         "kind": {
           "type": "string",
-          "enum": ["missing_state_from_records"]
+          "enum": ["missing_state_from_records", "incomplete_state_from_state", "incomplete_state_from_records"]
         },
         "stateRecordName": {
           "type": "string"
+        },
+        "missingFields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
         },
         "recordNames": {
           "type": "array",
@@ -380,6 +385,15 @@
             "resource.lookup",
             "custom"
           ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "requiredFields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": { "$ref": "#/$defs/stringOrTemplate" }
