@@ -56,6 +56,7 @@ type RemainingAccountMeta = {
 };
 
 type AgentViewSpec = {
+  instruction?: string;
   inputs?: Record<string, RuntimeInputDecl>;
   load?: unknown[];
   transform?: string[];

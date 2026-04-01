@@ -135,6 +135,9 @@
     "viewSpec": {
       "type": "object",
       "properties": {
+        "instruction": {
+          "type": "string"
+        },
         "inputs": {
           "type": "object",
           "additionalProperties": {
