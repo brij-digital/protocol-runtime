@@ -56,15 +56,15 @@ type RemainingAccountMeta = {
 };
 
 type AgentViewSpec = {
-  instruction?: string;
+  preview_instruction?: string;
   inputs?: Record<string, RuntimeInputDecl>;
   load?: unknown[];
   transform?: string[];
-  output?: ReadOutputSpec;
+  output: ReadOutputSpec;
 };
 
 type AgentWriteSpec = {
-  instruction?: string;
+  instruction: string;
   inputs?: Record<string, RuntimeInputSpec>;
   load?: unknown[];
   transform?: string[];
@@ -125,6 +125,7 @@ export type RuntimeOperationSummary = {
   operationId: string;
   operationKind: OperationKind;
   instruction?: string;
+  previewInstruction?: string;
   executionKind: 'view' | 'write';
   inputs: Record<string, RuntimeOperationInputSummary>;
   output?: {
@@ -141,6 +142,7 @@ export type RuntimeOperationExplain = {
   operationId: string;
   operationKind: OperationKind;
   instruction?: string;
+  previewInstruction?: string;
   inputs: Record<string, RuntimeInputSpec>;
   load: unknown[];
   transform: unknown[];
@@ -200,6 +202,9 @@ function mergeMaterializedFragment(
   target: MaterializedRuntimeOperation,
   fragment: Partial<AgentViewSpec & AgentWriteSpec>,
 ): void {
+  if ('preview_instruction' in fragment && fragment.preview_instruction) {
+    target.instruction = fragment.preview_instruction;
+  }
   if ('instruction' in fragment && fragment.instruction) {
     target.instruction = fragment.instruction;
   }
@@ -370,10 +375,6 @@ async function hydrateWriteSpecsFromCodama(options: {
         `Write ${options.protocolId}/${operationId} must not declare inputs explicitly; write inputs are sourced from Codama.`,
       );
     }
-    if (!writeSpec.instruction) {
-      nextWrites[operationId] = cloneJsonLike(writeSpec);
-      continue;
-    }
 
     const instruction = findCodamaInstructionByName(codama, writeSpec.instruction);
     if (!instruction) {
@@ -441,12 +442,18 @@ export async function loadRuntimePack(protocolId: string): Promise<RuntimePack> 
     writes: cloneJsonLike(parsed.writes ?? {}),
     transforms,
   });
+  const views = cloneJsonLike((parsed as { views?: Record<string, AgentViewSpec> }).views ?? {});
+  for (const [operationId, viewSpec] of Object.entries(views)) {
+    if (!viewSpec.output) {
+      throw new Error(`View ${protocolId}/${operationId} must declare output.`);
+    }
+  }
   const pack: RuntimePack = {
     schema: 'solana-agent-runtime.v1',
     protocolId,
     programId: manifest.programId,
     codamaPath: manifest.codamaIdlPath,
-    views: cloneJsonLike((parsed as { views?: Record<string, AgentViewSpec> }).views ?? {}),
+    views,
     writes,
     transforms,
   };
@@ -708,7 +715,8 @@ export async function listRuntimeOperations(options: {
     operations.push({
       operationId,
       operationKind: kind,
-      ...(materialized.instruction ? { instruction: materialized.instruction } : {}),
+      ...(kind === 'write' && materialized.instruction ? { instruction: materialized.instruction } : {}),
+      ...(kind === 'view' && materialized.instruction ? { previewInstruction: materialized.instruction } : {}),
       executionKind: kind,
       inputs,
       ...(normalizeOutputSpec(materialized.output, `${options.protocolId}/${operationId}`) ? {
@@ -745,7 +753,8 @@ export async function explainRuntimeOperation(options: {
     protocolId: options.protocolId,
     operationId: options.operationId,
     operationKind: resolved.kind,
-    ...(materialized.instruction ? { instruction: materialized.instruction } : {}),
+    ...(resolved.kind === 'write' && materialized.instruction ? { instruction: materialized.instruction } : {}),
+    ...(resolved.kind === 'view' && materialized.instruction ? { previewInstruction: materialized.instruction } : {}),
     inputs: cloneJsonLike(materialized.inputs),
     load: cloneJsonLike(materialized.load),
     transform: cloneJsonLike(materialized.transform),

@@ -702,9 +702,10 @@ export async function runRuntimeView(options: {
       : explicitAccounts;
   scope.instruction_accounts = finalAccounts;
 
-  const output = operation.output?.source
-    ? normalizeRuntimeValue(resolvePath(scope, operation.output.source))
-    : normalizeRuntimeValue(derived);
+  if (!operation.output?.source) {
+    throw new Error(`View ${options.protocolId}/${options.operationId} has no output.`);
+  }
+  const output = normalizeRuntimeValue(resolvePath(scope, operation.output.source));
 
   return {
     protocolId: options.protocolId,

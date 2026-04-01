@@ -101,11 +101,14 @@ This shared shape is intentional:
 
 A view operation has these attributes:
 
+- `preview_instruction`
+  - optional
+  - Codama instruction name used only when the view needs preview account resolution
 - `inputs`
   - optional
   - map of input name -> type string
 - `output`
-  - optional
+  - required
   - `outputSpec`
 
 ## Read Output Types
@@ -150,7 +153,7 @@ Attributes:
 A contract write operation has these attributes:
 
 - `instruction`
-  - optional
+  - required
   - target instruction name in Codama
 - write inputs are not declared in the runtime file
   - the write input surface is sourced from Codama
@@ -469,7 +472,7 @@ Minimal excerpt:
 
 ```json
 {
-  "instruction": "swap_v2",
+  "preview_instruction": "swap_v2",
   "load": [
     {
       "name": "wallet",

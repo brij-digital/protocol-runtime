@@ -134,8 +134,11 @@
     },
     "viewSpec": {
       "type": "object",
+      "required": [
+        "output"
+      ],
       "properties": {
-        "instruction": {
+        "preview_instruction": {
           "type": "string"
         },
         "inputs": {
@@ -191,6 +194,9 @@
     },
     "writeSpec": {
       "type": "object",
+      "required": [
+        "instruction"
+      ],
       "properties": {
         "instruction": {
           "type": "string"
