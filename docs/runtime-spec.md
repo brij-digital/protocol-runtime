@@ -528,7 +528,7 @@ Useful references:
 
 - runtime pack: `/idl/orca_whirlpool.runtime.json`
 - Codama IDL: `/idl/orca_whirlpool.codama.json`
-- live inspect UI: `/compute-dev`
+- live inspect UI: `/#compute`
 
 For example, the real Orca flow derives values such as `a_to_b`, `sqrt_price_limit`, and `tick_arrays` before they are bound into the raw Codama-shaped write input surface:
 
