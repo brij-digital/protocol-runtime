@@ -465,6 +465,8 @@ In the Orca pack:
 - `swap_exact_in`
   - targets Codama instruction `swap_v2`
   - consumes raw Codama write inputs
+  - does not compute `tick_array0/1/2` itself
+  - expects values such as `a_to_b`, `sqrt_price_limit`, and `tick_array0/1/2` to be forwarded from a prior view or runner step
   - materializes `args` and `accounts`
 
 Minimal excerpt:
@@ -509,7 +511,20 @@ Minimal excerpt:
       ],
       "output": {
         "type": "object",
-        "source": "$derived"
+        "source": "$derived",
+        "object_schema": {
+          "fields": {
+            "a_to_b": {
+              "type": "bool"
+            },
+            "sqrt_price_limit": {
+              "type": "u128"
+            },
+            "tick_arrays": {
+              "type": "array"
+            }
+          }
+        }
       }
     }
   },
@@ -532,6 +547,22 @@ Minimal excerpt:
       }
     }
   }
+}
+```
+
+In practice, a runner step or caller forwards the derived quote values into the write input surface:
+
+```json
+{
+  "amount": "$quote.output.amount",
+  "other_amount_threshold": "$quote.output.minimum_out",
+  "sqrt_price_limit": "$quote.output.sqrt_price_limit",
+  "amount_specified_is_input": true,
+  "a_to_b": "$quote.output.a_to_b",
+  "whirlpool": "$input.whirlpool",
+  "tick_array0": "$quote.output.tick_arrays.0",
+  "tick_array1": "$quote.output.tick_arrays.1",
+  "tick_array2": "$quote.output.tick_arrays.2"
 }
 ```
 
