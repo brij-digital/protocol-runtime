@@ -1,17 +1,24 @@
-# Runtime Spec V1
+# Runtime Spec V1 Reference
 
 This document describes the current `solana-agent-runtime.v1` contract.
 
-It is the smallest layer that still exists after moving instruction-level truth into Codama and indexed-read semantics into the indexing spec.
+The goal of this spec is narrow:
+- it does **not** describe indexed reads
+- it does **not** restate raw instruction structure
+- it does **not** try to be a full workflow language
 
-## What lives where
+It only describes the deterministic runtime layer that still exists on top of:
+- `Codama` for instruction truth
+- `indexing` for indexed reads and discovery
 
-For each protocol, AppPack now has three declarative artifacts:
+## Pack split
+
+For each protocol, AppPack currently has three declarative artifacts:
 
 1. `*.codama.json`
 - instruction-level source of truth
 - instruction accounts
-- signers
+- signer metadata
 - fixed/default accounts
 - PDA-backed defaults when declared in Codama
 
@@ -19,271 +26,486 @@ For each protocol, AppPack now has three declarative artifacts:
 - indexed reads
 - discovery
 - feeds
-- series
 - ranking
+- series
 
 3. `*.runtime.json`
 - deterministic compute
 - deterministic write preparation
 - small transaction-envelope logic around writes
 
-The runtime spec does **not** redefine the instruction schema.
-It assumes Codama already owns that.
-
 ## Where program-specific logic lives
 
 Program-specific runtime logic lives in the protocol runtime file:
 
-- `public/idl/<protocol>.runtime.json` in the authoring repo
+- `public/idl/<protocol>.runtime.json`
 
 Examples:
 - `orca_whirlpool.runtime.json`
 - `pump_amm.runtime.json`
 - `pump_core.runtime.json`
 
-This file is authored and maintained by the protocol pack maintainer.
+This file is authored by the protocol pack maintainer.
 
 What the maintainer provides there:
 - named `computes`
 - named `contract_writes`
-- the exact inputs each operation accepts
-- the extra runtime context that still needs to be resolved
-- the deterministic compute steps needed to derive intermediate values
-- the mapping from those values into instruction args/accounts
-- optional `pre` / `post` transaction-envelope instructions
+- exact input contracts
+- extra runtime context that still needs to be resolved
+- deterministic compute steps
+- mapping from resolved/computed values into write args/accounts
+- optional `pre` / `post` envelope instructions
 
 What the maintainer does **not** need to restate there:
-- the raw instruction account schema
-- signer metadata
-- fixed/default accounts already declared in Codama
-- indexed view semantics
+- raw instruction account schema
+- signer metadata already declared in Codama
+- fixed/default/PDA-backed accounts already declared in Codama
+- indexed read semantics
 
-## Runtime file shape
+## Top-level file shape
 
-Current top-level shape:
+Required top-level keys:
 
 ```json
 {
   "$schema": "/idl/solana_agent_runtime.schema.v1.json",
   "schema": "solana-agent-runtime.v1",
-  "computes": {
-    "...": {}
-  },
-  "contract_writes": {
-    "...": {}
-  }
+  "computes": {},
+  "contract_writes": {}
 }
 ```
 
-That is intentionally small.
+Top-level attributes:
 
-## Computes
+- `$schema`
+  - optional schema path string
+- `schema`
+  - required
+  - must be `solana-agent-runtime.v1`
+- `computes`
+  - required
+  - object map from operation id to `computeSpec`
+- `contract_writes`
+  - required
+  - object map from operation id to `executionSpec`
 
-A `compute` operation is a deterministic protocol-specific calculation.
+No other top-level attributes are allowed.
 
-Typical uses:
-- quote preview
-- threshold derivation
-- PDA list derivation
-- list filtering / selection
-- typed output for UI, backend, or agent use
+## Shared attribute types
 
-Current shape:
+### `inputSpec`
+
+Used inside `inputs`.
+
+Attributes:
+- `type`
+  - required
+  - string
+- `required`
+  - optional
+  - boolean
+- `default`
+  - optional
+  - any JSON value
+
+### `outputFieldSpec`
+
+Used inside `read_output.object_schema.fields`.
+
+Attributes:
+- `type`
+  - required
+  - string
+- `required`
+  - optional
+  - boolean
+- `description`
+  - optional
+  - string
+
+### `readOutputSpec`
+
+Typed output contract for a compute or write operation.
+
+Attributes:
+- `type`
+  - required
+  - one of: `array`, `object`, `scalar`, `list`
+- `source`
+  - required
+  - runtime expression string
+- `object_schema`
+  - optional
+  - object schema for `type = object`
+- `item_schema`
+  - optional
+  - object schema for `type = array` or `list`
+- `scalar_type`
+  - optional
+  - scalar type string for `type = scalar`
+
+## `computeSpec`
+
+A compute operation has these attributes:
+
+- `instruction`
+  - optional
+  - string
+  - instruction name for contextual alignment with Codama
+- `inputs`
+  - optional
+  - map of input name -> `inputSpec`
+- `resolve`
+  - optional
+  - array of `resolveStepSpec`
+- `compute`
+  - optional
+  - array of `computeStepSpec`
+- `read_output`
+  - optional
+  - `readOutputSpec`
+
+## `executionSpec`
+
+A contract write operation has these attributes:
+
+- `instruction`
+  - optional
+  - string
+  - target instruction name in Codama
+- `inputs`
+  - optional
+  - map of input name -> `inputSpec`
+- `resolve`
+  - optional
+  - array of `resolveStepSpec`
+- `compute`
+  - optional
+  - array of `computeStepSpec`
+- `args`
+  - optional
+  - map of arg name -> scalar binding
+  - allowed binding values: `string`, `number`, `boolean`, `null`
+- `accounts`
+  - optional
+  - map of account name -> string binding
+- `remaining_accounts`
+  - optional
+  - either:
+    - string reference, or
+    - array of `{ pubkey, isSigner?, isWritable? }`
+- `pre`
+  - optional
+  - array of `preInstructionSpec`
+- `post`
+  - optional
+  - array of `postInstructionSpec`
+- `read_output`
+  - optional
+  - `readOutputSpec`
+
+## Resolve reference
+
+`resolve` loads the extra runtime context still needed outside Codama.
+
+### `wallet_pubkey`
+
+Required attributes:
+- `name`
+- `kind = "wallet_pubkey"`
+
+### `decode_account`
+
+Required attributes:
+- `name`
+- `kind = "decode_account"`
+- `address`
+- `account_type`
+
+### `account_owner`
+
+Required attributes:
+- `name`
+- `kind = "account_owner"`
+- `address`
+
+### `token_account_balance`
+
+Required attributes:
+- `name`
+- `kind = "token_account_balance"`
+- `address`
+
+Optional attributes:
+- `allow_missing`
+- `default`
+
+### `token_supply`
+
+Required attributes:
+- `name`
+- `kind = "token_supply"`
+- `mint`
+
+### `ata`
+
+Required attributes:
+- `name`
+- `kind = "ata"`
+- `owner`
+- `mint`
+
+Optional attributes:
+- `token_program`
+- `allow_owner_off_curve`
+
+### `pda`
+
+Required attributes:
+- `name`
+- `kind = "pda"`
+- `program_id`
+
+Optional attributes:
+- `seeds`
+
+`seeds` is an array of:
+- string
+- any JSON value
+
+## Compute reference
+
+`compute` is a deterministic expression language.
+
+### Arithmetic kinds
+
+`math.add`
+- required: `name`, `kind`, `values`
+
+`math.sum`
+- required: `name`, `kind`, `values`
+
+`math.mul`
+- required: `name`, `kind`, `values`
+
+`math.sub`
+- required: `name`, `kind`, `values`
+
+`math.floor_div`
+- required: `name`, `kind`, `dividend`, `divisor`
+
+### List kinds
+
+`list.range_map`
+- required: `name`, `kind`, `base`, `step`, `count`
+
+`list.get`
+- required: `name`, `kind`, `values`, `index`
+
+`list.filter`
+- required: `name`, `kind`, `items`
+- optional: `where`
+
+`list.first`
+- required: `name`, `kind`, `items`
+- optional: `allow_empty`
+
+`list.min_by`
+- required: `name`, `kind`, `items`, `path`
+- optional: `allow_empty`
+
+`list.max_by`
+- required: `name`, `kind`, `items`, `path`
+- optional: `allow_empty`
+
+### Utility kinds
+
+`coalesce`
+- required: `name`, `kind`, `values`
+
+`pda(seed_spec)`
+- required: `name`, `kind`, `seeds`
+- optional: `program_id`, `map_over`
+
+Seed item kinds:
+- `utf8`
+- `pubkey`
+- `i32_le`
+- `item_i32_le`
+- `item_utf8`
+
+### Comparison kinds
+
+`compare.equals`
+- required: `name`, `kind`, `left`, `right`
+
+`compare.not_equals`
+- required: `name`, `kind`, `left`, `right`
+
+`compare.gt`
+- required: `name`, `kind`, `left`, `right`
+
+`compare.gte`
+- required: `name`, `kind`, `left`, `right`
+
+`compare.lt`
+- required: `name`, `kind`, `left`, `right`
+
+`compare.lte`
+- required: `name`, `kind`, `left`, `right`
+
+### Logic kinds
+
+`logic.if`
+- required: `name`, `kind`, `condition`, `then`, `else`
+
+### Assertion / curve kinds
+
+`assert.not_null`
+- required: `name`, `kind`, `value`
+- optional: `message`
+
+`curve.linear_interpolate_bps`
+- required: `name`, `kind`, `points`, `x_bps`
+- optional: `x_field`, `y_field`
+
+## Condition reference
+
+`when` conditions in `pre` and `post` use `metaConditionSpec`.
+
+Allowed forms:
+
+`equals`
 
 ```json
-{
-  "instruction": "swap_v2",
-  "inputs": {
-    "token_in_mint": { "type": "token_mint", "required": true },
-    "token_out_mint": { "type": "token_mint", "required": true },
-    "amount_in": { "type": "u64", "required": true },
-    "slippage_bps": { "type": "u16", "required": true },
-    "whirlpool": { "type": "pubkey", "required": true }
-  },
-  "resolve": [],
-  "compute": [],
-  "read_output": {}
-}
+{ "equals": ["$a", "$b"] }
 ```
 
-### `resolve`
+`all`
 
-`resolve` loads only the extra runtime context still needed outside Codama.
+```json
+{ "all": [ { "equals": ["$a", true] }, { "equals": ["$b", false] } ] }
+```
 
-Current live kinds:
-- `wallet_pubkey`
-- `decode_account`
-- `account_owner`
-- `token_account_balance`
-- `token_supply`
+`any`
+
+```json
+{ "any": [ ... ] }
+```
+
+`not`
+
+```json
+{ "not": { "equals": ["$a", "$b"] } }
+```
+
+## Pre-instruction reference
+
+### `spl_ata_create_idempotent`
+
+Required attributes:
+- `name`
+- `kind = "spl_ata_create_idempotent"`
+- `payer`
 - `ata`
-- `pda`
+- `owner`
+- `mint`
 
-Example:
+Optional attributes:
+- `token_program`
+- `associated_token_program`
+- `when`
 
-```json
-[
-  {
-    "name": "wallet",
-    "kind": "wallet_pubkey"
-  },
-  {
-    "name": "whirlpool_data",
-    "kind": "decode_account",
-    "address": "$input.whirlpool",
-    "account_type": "Whirlpool"
-  }
-]
-```
+### `system_transfer`
 
-### `compute`
+Required attributes:
+- `name`
+- `kind = "system_transfer"`
+- `from`
+- `to`
+- `lamports`
 
-`compute` is a small deterministic expression language.
+Optional attributes:
+- `when`
 
-It is used to derive values such as:
-- `a_to_b`
-- tick array addresses
-- `estimated_out`
-- `minimum_out`
+### `spl_token_sync_native`
 
-Example:
+Required attributes:
+- `name`
+- `kind = "spl_token_sync_native"`
+- `account`
 
-```json
-[
-  {
-    "name": "a_to_b",
-    "kind": "compare.equals",
-    "left": "$whirlpool_data.token_mint_a",
-    "right": "$input.token_in_mint"
-  },
-  {
-    "name": "estimated_out",
-    "kind": "coalesce",
-    "values": ["$estimated_out_effective"]
-  },
-  {
-    "name": "minimum_out",
-    "kind": "coalesce",
-    "values": ["$other_amount_threshold"]
-  }
-]
-```
+Optional attributes:
+- `token_program`
+- `when`
 
-### `read_output`
+## Post-instruction reference
 
-`read_output` declares the typed output contract of the operation.
+### `spl_token_close_account`
 
-That is what makes a compute usable by:
-- the backend
-- the UI
-- an agent
-- a runner
+Required attributes:
+- `name`
+- `kind = "spl_token_close_account"`
+- `account`
+- `destination`
+- `owner`
 
-## Contract writes
+Optional attributes:
+- `token_program`
+- `when`
 
-A `contract_write` prepares one concrete instruction call using:
-- Codama for the instruction schema
-- runtime inputs
-- resolved values
-- computed values
-
-Current shape:
-
-```json
-{
-  "instruction": "swap_v2",
-  "inputs": {},
-  "resolve": [],
-  "compute": [],
-  "args": {},
-  "accounts": {},
-  "remaining_accounts": [],
-  "pre": [],
-  "post": []
-}
-```
-
-### `args`
-
-`args` maps concrete scalar values into the instruction arguments.
-
-Example:
-
-```json
-{
-  "amount": "$input.amount_in",
-  "other_amount_threshold": "$other_amount_threshold",
-  "sqrt_price_limit": "0",
-  "amount_specified_is_input": true,
-  "a_to_b": "$a_to_b",
-  "remaining_accounts_info": null
-}
-```
-
-### `accounts`
-
-`accounts` maps concrete pubkeys into the named instruction accounts.
-
-These bindings only exist for values that still need materialization at runtime.
-Anything already implied by Codama defaults should stay in Codama instead.
-
-Example:
-
-```json
-{
-  "whirlpool": "$input.whirlpool",
-  "token_mint_a": "$whirlpool_data.token_mint_a",
-  "token_mint_b": "$whirlpool_data.token_mint_b",
-  "tick_array0": "$tick_arrays.0",
-  "tick_array1": "$tick_arrays.1",
-  "tick_array2": "$tick_arrays.2"
-}
-```
-
-### `pre` / `post`
-
-This is the remaining transaction-envelope layer.
-
-Typical uses:
-- create ATA if needed
-- wrap native SOL
-- sync native
-- close temporary WSOL account
-
-Example:
-
-```json
-[
-  {
-    "kind": "spl_ata_create_idempotent",
-    "payer": "$wallet",
-    "ata": "$instruction_accounts.token_owner_account_a",
-    "owner": "$wallet",
-    "mint": "$whirlpool_data.token_mint_a"
-  }
-]
-```
-
-This is also the area that maps most naturally to future Codama instruction-plan support.
-
-## Concrete Orca example
+## Orca example
 
 In the Orca pack:
 
 - `quote_exact_in`
   - decodes the `Whirlpool`
   - computes direction, tick arrays, `estimated_out`, `minimum_out`
-  - returns a typed quote result
+  - returns a typed quote object
 
 - `swap_exact_in`
-  - reuses the same deterministic logic
-  - fills instruction args
+  - targets Codama instruction `swap_v2`
+  - reuses deterministic logic
+  - fills `args`
   - materializes dynamic accounts
-  - adds ATA / WSOL envelope instructions when needed
+  - adds `pre` / `post` instructions for ATA and WSOL handling
 
-In other words:
-- Codama says what `swap_v2` is
-- the runtime spec says how this application prepares a usable `swap_v2`
+Minimal excerpt:
+
+```json
+{
+  "instruction": "swap_v2",
+  "resolve": [
+    {
+      "name": "wallet",
+      "kind": "wallet_pubkey"
+    },
+    {
+      "name": "whirlpool_data",
+      "kind": "decode_account",
+      "address": "$input.whirlpool",
+      "account_type": "Whirlpool"
+    }
+  ],
+  "compute": [
+    {
+      "name": "a_to_b",
+      "kind": "compare.equals",
+      "left": "$whirlpool_data.token_mint_a",
+      "right": "$input.token_in_mint"
+    },
+    {
+      "name": "minimum_out",
+      "kind": "coalesce",
+      "values": ["$other_amount_threshold"]
+    }
+  ],
+  "args": {
+    "amount": "$input.amount_in",
+    "other_amount_threshold": "$other_amount_threshold"
+  }
+}
+```
 
 ## Authoring rule of thumb
 
@@ -299,16 +521,16 @@ Put logic in the runtime spec when it is:
 - dynamic value materialization for a write
 - small transaction-envelope logic around a write
 
-Keep logic out of the runtime spec when it belongs in the indexing spec:
+Put logic in the indexing spec when it is:
 - discovery
 - search
 - feeds
 - ranking
 - series
 
-## Why this split exists
+Anything that requires:
+- transaction A
+- then read live state
+- then transaction B
 
-This split keeps the runtime layer small and explicit:
-- Codama remains the instruction source of truth
-- indexing remains the read/discovery source of truth
-- runtime remains a narrow deterministic execution layer on top
+belongs in a higher-level runtime, not in this spec.
