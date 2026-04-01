@@ -687,14 +687,16 @@ export async function runRuntimeView(options: {
 
   const resolvedArgs = normalizeRuntimeValue(resolveTemplateValue(operation.args ?? {}, scope));
   const resolvedAccounts = normalizeRuntimeValue(resolveTemplateValue(operation.accounts ?? {}, scope));
-  const explicitAccounts = assertStringRecord(resolvedAccounts, 'accounts');
+  const resolvedLoadInstructionArgs = normalizeRuntimeValue(resolveTemplateValue(operation.loadInstructionArgs ?? {}, scope));
+  const resolvedLoadInstructionAccounts = normalizeRuntimeValue(resolveTemplateValue(operation.loadInstructionAccounts ?? {}, scope));
+  const explicitAccounts = assertStringRecord(resolvedLoadInstructionAccounts, 'load_instruction_bindings.accounts');
   const finalAccounts =
-    operation.instruction
+    operation.loadInstruction
       ? (
           await previewIdlInstruction({
             protocolId: options.protocolId,
-            instructionName: operation.instruction,
-            args: resolvedArgs as Record<string, unknown>,
+            instructionName: operation.loadInstruction,
+            args: resolvedLoadInstructionArgs as Record<string, unknown>,
             accounts: explicitAccounts,
             walletPublicKey: options.walletPublicKey,
           })

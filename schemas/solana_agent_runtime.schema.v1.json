@@ -138,8 +138,39 @@
         "output"
       ],
       "properties": {
-        "preview_instruction": {
+        "load_instruction": {
           "type": "string"
+        },
+        "load_instruction_bindings": {
+          "type": "object",
+          "properties": {
+            "args": {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "accounts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
         },
         "inputs": {
           "type": "object",

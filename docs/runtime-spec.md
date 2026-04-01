@@ -101,9 +101,15 @@ This shared shape is intentional:
 
 A view operation has these attributes:
 
-- `preview_instruction`
+- `load_instruction`
   - optional
-  - Codama instruction name used only when the view needs preview account resolution
+  - Codama instruction name whose account context should be loaded for the view
+- `load_instruction_bindings`
+  - optional
+  - explicit bindings used to populate that instruction context
+  - supports:
+    - `args`
+    - `accounts`
 - `inputs`
   - optional
   - map of input name -> type string
@@ -457,7 +463,7 @@ Optional attributes:
 In the Orca pack:
 
 - `quote_exact_in`
-  - previews Codama instruction `swap_v2`
+  - loads Codama instruction context for `swap_v2`
   - decodes the `Whirlpool`
   - reuses a shared transform fragment
   - returns a typed quote object
@@ -476,7 +482,7 @@ Minimal structural excerpt:
   },
   "views": {
     "quote_exact_in": {
-      "preview_instruction": "swap_v2",
+      "load_instruction": "swap_v2",
       "inputs": {
         "token_in_mint": "token_mint",
         "token_out_mint": "token_mint",
@@ -484,6 +490,14 @@ Minimal structural excerpt:
         "slippage_bps": "u16",
         "whirlpool": "pubkey",
         "unwrap_sol_output": "bool"
+      },
+      "load_instruction_bindings": {
+        "args": {
+          "amount": "$input.amount_in"
+        },
+        "accounts": {
+          "whirlpool": "$input.whirlpool"
+        }
       },
       "load": [],
       "transform": [

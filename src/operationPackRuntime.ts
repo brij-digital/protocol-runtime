@@ -56,7 +56,11 @@ type RemainingAccountMeta = {
 };
 
 type AgentViewSpec = {
-  preview_instruction?: string;
+  load_instruction?: string;
+  load_instruction_bindings?: {
+    args?: Record<string, ArgBindingValue>;
+    accounts?: Record<string, string>;
+  };
   inputs?: Record<string, RuntimeInputDecl>;
   load?: unknown[];
   transform?: string[];
@@ -106,11 +110,14 @@ export type ResolvedRuntimeOperation = {
 export type MaterializedRuntimeOperation = {
   kind: OperationKind;
   instruction: string | null;
+  loadInstruction: string | null;
   inputs: Record<string, RuntimeInputSpec>;
   load: unknown[];
   transform: unknown[];
   args: Record<string, unknown>;
   accounts: Record<string, unknown>;
+  loadInstructionArgs: Record<string, unknown>;
+  loadInstructionAccounts: Record<string, unknown>;
   remainingAccounts: unknown;
   output?: ReadOutputSpec;
   pre?: unknown[];
@@ -125,7 +132,7 @@ export type RuntimeOperationSummary = {
   operationId: string;
   operationKind: OperationKind;
   instruction?: string;
-  previewInstruction?: string;
+  loadInstruction?: string;
   executionKind: 'view' | 'write';
   inputs: Record<string, RuntimeOperationInputSummary>;
   output?: {
@@ -142,12 +149,14 @@ export type RuntimeOperationExplain = {
   operationId: string;
   operationKind: OperationKind;
   instruction?: string;
-  previewInstruction?: string;
+  loadInstruction?: string;
   inputs: Record<string, RuntimeInputSpec>;
   load: unknown[];
   transform: unknown[];
   args: Record<string, unknown>;
   accounts: Record<string, unknown>;
+  loadInstructionArgs: Record<string, unknown>;
+  loadInstructionAccounts: Record<string, unknown>;
   remainingAccounts: unknown;
   output?: {
     type: 'array' | 'object' | 'scalar';
@@ -202,8 +211,22 @@ function mergeMaterializedFragment(
   target: MaterializedRuntimeOperation,
   fragment: Partial<AgentViewSpec & AgentWriteSpec>,
 ): void {
-  if ('preview_instruction' in fragment && fragment.preview_instruction) {
-    target.instruction = fragment.preview_instruction;
+  if ('load_instruction' in fragment && fragment.load_instruction) {
+    target.loadInstruction = fragment.load_instruction;
+  }
+  if ('load_instruction_bindings' in fragment && fragment.load_instruction_bindings) {
+    if (fragment.load_instruction_bindings.args) {
+      target.loadInstructionArgs = {
+        ...target.loadInstructionArgs,
+        ...cloneJsonLike(fragment.load_instruction_bindings.args),
+      };
+    }
+    if (fragment.load_instruction_bindings.accounts) {
+      target.loadInstructionAccounts = {
+        ...target.loadInstructionAccounts,
+        ...cloneJsonLike(fragment.load_instruction_bindings.accounts),
+      };
+    }
   }
   if ('instruction' in fragment && fragment.instruction) {
     target.instruction = fragment.instruction;
@@ -485,11 +508,14 @@ export function materializeRuntimeOperation(
   const materialized: MaterializedRuntimeOperation = {
     kind,
     instruction: null,
+    loadInstruction: null,
     inputs: {},
     load: [],
     transform: [],
     args: {},
     accounts: {},
+    loadInstructionArgs: {},
+    loadInstructionAccounts: {},
     remainingAccounts: [],
     pre: [],
     post: [],
@@ -716,7 +742,7 @@ export async function listRuntimeOperations(options: {
       operationId,
       operationKind: kind,
       ...(kind === 'write' && materialized.instruction ? { instruction: materialized.instruction } : {}),
-      ...(kind === 'view' && materialized.instruction ? { previewInstruction: materialized.instruction } : {}),
+      ...(kind === 'view' && materialized.loadInstruction ? { loadInstruction: materialized.loadInstruction } : {}),
       executionKind: kind,
       inputs,
       ...(normalizeOutputSpec(materialized.output, `${options.protocolId}/${operationId}`) ? {
@@ -754,12 +780,14 @@ export async function explainRuntimeOperation(options: {
     operationId: options.operationId,
     operationKind: resolved.kind,
     ...(resolved.kind === 'write' && materialized.instruction ? { instruction: materialized.instruction } : {}),
-    ...(resolved.kind === 'view' && materialized.instruction ? { previewInstruction: materialized.instruction } : {}),
+    ...(resolved.kind === 'view' && materialized.loadInstruction ? { loadInstruction: materialized.loadInstruction } : {}),
     inputs: cloneJsonLike(materialized.inputs),
     load: cloneJsonLike(materialized.load),
     transform: cloneJsonLike(materialized.transform),
     args: cloneJsonLike(materialized.args),
     accounts: cloneJsonLike(materialized.accounts),
+    loadInstructionArgs: cloneJsonLike(materialized.loadInstructionArgs),
+    loadInstructionAccounts: cloneJsonLike(materialized.loadInstructionAccounts),
     remainingAccounts: cloneJsonLike(materialized.remainingAccounts),
     ...(normalizeOutputSpec(materialized.output, `${options.protocolId}/${options.operationId}`) ? {
       output: normalizeOutputSpec(materialized.output, `${options.protocolId}/${options.operationId}`),
