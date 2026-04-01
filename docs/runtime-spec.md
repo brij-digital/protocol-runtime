@@ -3,36 +3,22 @@
 This document describes the current `solana-agent-runtime.v1` contract.
 
 The goal of this spec is narrow:
-- it does **not** describe indexed reads
 - it does **not** restate raw instruction structure
 - it does **not** try to be a full workflow language
 
-It only describes the deterministic runtime layer that still exists on top of:
-- `Codama` for instruction truth
-- `indexing` for indexed reads and discovery
+It only describes the deterministic runtime layer that sits on top of Codama.
 
-## Pack split
+## Scope boundary
 
-For each protocol, AppPack currently has three declarative artifacts:
+This document only covers:
+- `*.runtime.json`
 
-1. `*.codama.json`
-- instruction-level source of truth
-- instruction accounts
+It assumes Codama already exists for the same protocol and already owns:
+- instruction structure
+- named accounts
 - signer metadata
 - fixed/default accounts
 - PDA-backed defaults when declared in Codama
-
-2. `*.indexing.json`
-- indexed reads
-- discovery
-- feeds
-- ranking
-- series
-
-3. `*.runtime.json`
-- deterministic compute
-- deterministic write preparation
-- small transaction-envelope logic around writes
 
 ## Where program-specific logic lives
 
@@ -60,7 +46,6 @@ What the maintainer does **not** need to restate there:
 - raw instruction account schema
 - signer metadata already declared in Codama
 - fixed/default/PDA-backed accounts already declared in Codama
-- indexed read semantics
 
 ## Top-level file shape
 
@@ -520,13 +505,6 @@ Put logic in the runtime spec when it is:
 - deterministic protocol-specific compute
 - dynamic value materialization for a write
 - small transaction-envelope logic around a write
-
-Put logic in the indexing spec when it is:
-- discovery
-- search
-- feeds
-- ranking
-- series
 
 Anything that requires:
 - transaction A
