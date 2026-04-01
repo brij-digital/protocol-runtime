@@ -83,16 +83,6 @@ No other top-level attributes are allowed.
 
 ## Shared attribute types
 
-### `inputSpec`
-
-Used only inside `reads[*].inputs`.
-These declarations are type-only.
-
-Attributes:
-- `type`
-  - required
-  - string
-
 ### `outputFieldSpec`
 
 Used inside `output.object_schema.fields`.
@@ -101,9 +91,6 @@ Attributes:
 - `type`
   - required
   - string
-- `required`
-  - optional
-  - boolean
 - `description`
   - optional
   - string
@@ -149,13 +136,9 @@ This shared shape is intentional:
 
 A read operation has these attributes:
 
-- `instruction_context`
-  - optional
-  - string
-  - Codama instruction name used when the read is a preview aligned with a write instruction
 - `inputs`
   - optional
-  - map of input name -> `inputSpec`
+  - map of input name -> type string
 - `output`
   - optional
   - `outputSpec`

@@ -21,6 +21,8 @@ type RuntimeInputSpec = {
   ui_example?: unknown;
 };
 
+type RuntimeInputDecl = string | RuntimeInputSpec;
+
 type ReadOutputSpec = {
   type: 'array' | 'object' | 'scalar' | 'list';
   source: string;
@@ -31,7 +33,6 @@ type ReadOutputSpec = {
 
 type OutputFieldSpec = {
   type: string;
-  required?: boolean;
   description?: string;
 };
 
@@ -55,8 +56,7 @@ type RemainingAccountMeta = {
 };
 
 type AgentReadSpec = {
-  instruction_context?: string;
-  inputs?: Record<string, RuntimeInputSpec>;
+  inputs?: Record<string, RuntimeInputDecl>;
   load?: unknown[];
   transform?: string[];
   output?: ReadOutputSpec;
@@ -199,14 +199,11 @@ function mergeMaterializedFragment(
   target: MaterializedRuntimeOperation,
   fragment: Partial<AgentReadSpec & AgentWriteSpec>,
 ): void {
-  if ('instruction_context' in fragment && fragment.instruction_context) {
-    target.instruction = fragment.instruction_context;
-  }
   if ('instruction' in fragment && fragment.instruction) {
     target.instruction = fragment.instruction;
   }
   if (fragment.inputs) {
-    target.inputs = { ...target.inputs, ...cloneJsonLike(fragment.inputs) };
+    target.inputs = { ...target.inputs, ...normalizeInputDeclMap(fragment.inputs) };
   }
   if (fragment.load) {
     target.load.push(...cloneJsonLike(fragment.load));
@@ -237,6 +234,19 @@ function mergeMaterializedFragment(
   if (fragment.post && fragment.post.length > 0) {
     target.post = [...(target.post ?? []), ...cloneJsonLike(fragment.post)];
   }
+}
+
+function normalizeInputDeclMap(
+  inputMap: Record<string, RuntimeInputDecl>,
+): Record<string, RuntimeInputSpec> {
+  return Object.fromEntries(
+    Object.entries(inputMap).map(([key, value]) => [
+      key,
+      typeof value === 'string'
+        ? { type: value }
+        : cloneJsonLike(value),
+    ]),
+  );
 }
 
 function collectInputReferences(value: unknown, refs: Set<string>): void {

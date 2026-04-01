@@ -131,12 +131,12 @@ export type PreparedMetaOperation = {
     objectSchema?: {
       entity_type?: string;
       identity_fields?: string[];
-      fields: Record<string, { type: string; required?: boolean; description?: string }>;
+      fields: Record<string, { type: string; description?: string }>;
     };
     itemSchema?: {
       entity_type?: string;
       identity_fields?: string[];
-      fields: Record<string, { type: string; required?: boolean; description?: string }>;
+      fields: Record<string, { type: string; description?: string }>;
     };
     scalarType?: string;
   };
@@ -155,12 +155,12 @@ export type PreparedMetaRead = {
     objectSchema?: {
       entity_type?: string;
       identity_fields?: string[];
-      fields: Record<string, { type: string; required?: boolean; description?: string }>;
+      fields: Record<string, { type: string; description?: string }>;
     };
     itemSchema?: {
       entity_type?: string;
       identity_fields?: string[];
-      fields: Record<string, { type: string; required?: boolean; description?: string }>;
+      fields: Record<string, { type: string; description?: string }>;
     };
     scalarType?: string;
   };

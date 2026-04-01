@@ -61,18 +61,6 @@
         }
       ]
     },
-    "inputSpec": {
-      "type": "object",
-      "required": [
-        "type"
-      ],
-      "properties": {
-        "type": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false
-    },
     "outputFieldSpec": {
       "type": "object",
       "required": [
@@ -81,9 +69,6 @@
       "properties": {
         "type": {
           "type": "string"
-        },
-        "required": {
-          "type": "boolean"
         },
         "description": {
           "type": "string"
@@ -206,13 +191,10 @@
     "readSpec": {
       "type": "object",
       "properties": {
-        "instruction_context": {
-          "type": "string"
-        },
         "inputs": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/$defs/inputSpec"
+            "type": "string"
           }
         },
         "load": {
