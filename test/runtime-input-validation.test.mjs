@@ -38,9 +38,9 @@ test('hydrateAndValidateRuntimeInputs normalizes valid pubkey-like inputs', () =
       token_out_mint: 'So11111111111111111111111111111111111111112',
       slippage_bps: 100,
     },
-    materialized: {
-      kind: 'compute',
-      instruction: '',
+        materialized: {
+          kind: 'read',
+          instruction: '',
       inputs: {
         token_in_mint: { type: 'token_mint' },
         token_out_mint: { type: 'token_mint' },

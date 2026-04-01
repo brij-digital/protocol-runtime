@@ -49,11 +49,13 @@ type RemainingAccountMeta = {
   isWritable?: boolean;
 };
 
-type AgentComputeSpec = {
+type TransformUse = string | unknown;
+
+type AgentReadSpec = {
   instruction?: string;
   inputs?: Record<string, RuntimeInputSpec>;
   load?: unknown[];
-  transform?: unknown[];
+  transform?: TransformUse[];
   read_output?: ReadOutputSpec;
 };
 
@@ -61,7 +63,7 @@ type AgentWriteSpec = {
   instruction?: string;
   inputs?: Record<string, RuntimeInputSpec>;
   load?: unknown[];
-  transform?: unknown[];
+  transform?: TransformUse[];
   args?: Record<string, ArgBindingValue>;
   accounts?: Record<string, string>;
   remaining_accounts?: string | RemainingAccountMeta[];
@@ -75,13 +77,14 @@ export type RuntimePack = {
   protocolId: string;
   programId: string;
   codamaPath: string;
-  computes?: Record<string, AgentComputeSpec>;
+  reads?: Record<string, AgentReadSpec>;
   writes?: Record<string, AgentWriteSpec>;
+  transforms?: Record<string, unknown[]>;
 };
 
-type OperationKind = 'compute' | 'write';
+type OperationKind = 'read' | 'write';
 
-type RawOperationSpec = AgentComputeSpec | AgentWriteSpec;
+type RawOperationSpec = AgentReadSpec | AgentWriteSpec;
 
 export type ResolvedIndexViewContract = {
   protocolId: string;
@@ -121,7 +124,7 @@ export type RuntimeOperationSummary = {
   operationId: string;
   operationKind: OperationKind;
   instruction: string;
-  executionKind: 'read' | 'compute' | 'write';
+  executionKind: 'read' | 'write';
   inputs: Record<string, RuntimeOperationInputSummary>;
   readOutput?: {
     type: 'array' | 'object' | 'scalar' | 'list';
@@ -186,7 +189,7 @@ function resolvePath(scope: JsonRecord, path: string): unknown {
 
 function mergeMaterializedFragment(
   target: MaterializedRuntimeOperation,
-  fragment: Partial<AgentComputeSpec & AgentWriteSpec>,
+  fragment: Partial<AgentReadSpec & AgentWriteSpec>,
 ): void {
   if (fragment.instruction) {
     target.instruction = fragment.instruction;
@@ -198,7 +201,7 @@ function mergeMaterializedFragment(
     target.load.push(...cloneJsonLike(fragment.load));
   }
   if (fragment.transform) {
-    target.transform.push(...cloneJsonLike(fragment.transform));
+    target.transform.push(...cloneJsonLike(fragment.transform as unknown[]));
   }
   if (fragment.args) {
     target.args = { ...target.args, ...cloneJsonLike(fragment.args) };
@@ -225,6 +228,27 @@ function mergeMaterializedFragment(
   }
 }
 
+function expandTransformPipeline(options: {
+  protocolId: string;
+  operationId: string;
+  catalog: Record<string, unknown[]>;
+  pipeline: unknown[];
+}): unknown[] {
+  const expanded: unknown[] = [];
+  for (const [index, entry] of options.pipeline.entries()) {
+    if (typeof entry !== 'string') {
+      expanded.push(cloneJsonLike(entry));
+      continue;
+    }
+    const fragment = options.catalog[entry];
+    if (!Array.isArray(fragment)) {
+      throw new Error(`Unknown transform fragment ${entry} in ${options.protocolId}/${options.operationId} at transform[${index}].`);
+    }
+    expanded.push(...cloneJsonLike(fragment));
+  }
+  return expanded;
+}
+
 export async function loadRuntimePack(protocolId: string): Promise<RuntimePack> {
   const cached = runtimePackCache.get(protocolId);
   if (cached) {
@@ -244,8 +268,9 @@ export async function loadRuntimePack(protocolId: string): Promise<RuntimePack> 
     protocolId,
     programId: manifest.programId,
     codamaPath: manifest.codamaIdlPath,
-    computes: cloneJsonLike(parsed.computes ?? {}),
+    reads: cloneJsonLike(parsed.reads ?? {}),
     writes: cloneJsonLike(parsed.writes ?? {}),
+    transforms: cloneJsonLike(parsed.transforms ?? {}),
   };
   runtimePackCache.set(protocolId, pack);
   return pack;
@@ -255,9 +280,9 @@ function getRawOperationSpec(
   pack: RuntimePack,
   operationId: string,
 ): { kind: OperationKind; spec: RawOperationSpec } | null {
-  const compute = pack.computes?.[operationId];
-  if (compute) {
-    return { kind: 'compute', spec: compute };
+  const read = pack.reads?.[operationId];
+  if (read) {
+    return { kind: 'read', spec: read };
   }
   const write = pack.writes?.[operationId];
   if (write) {
@@ -285,7 +310,13 @@ export function materializeRuntimeOperation(
     post: [],
   };
 
-  mergeMaterializedFragment(materialized, cloneJsonLike(operation as Partial<AgentComputeSpec & AgentWriteSpec>));
+  mergeMaterializedFragment(materialized, cloneJsonLike(operation as Partial<AgentReadSpec & AgentWriteSpec>));
+  materialized.transform = expandTransformPipeline({
+    protocolId: pack.protocolId,
+    operationId,
+    catalog: cloneJsonLike(pack.transforms ?? {}),
+    pipeline: materialized.transform,
+  });
 
   return materialized;
 }
@@ -504,7 +535,7 @@ export async function listRuntimeOperations(options: {
       operationId,
       operationKind: kind,
       instruction: materialized.instruction,
-      executionKind: kind === 'write' ? 'write' : 'compute',
+      executionKind: kind,
       inputs,
       ...(normalizeReadOutputSpec(materialized.readOutput, `${options.protocolId}/${operationId}`) ? {
         readOutput: normalizeReadOutputSpec(materialized.readOutput, `${options.protocolId}/${operationId}`),
@@ -512,8 +543,8 @@ export async function listRuntimeOperations(options: {
     });
   };
 
-  for (const [operationId, spec] of Object.entries(pack.computes ?? {})) {
-    pushSummary(operationId, 'compute', spec, materializeRuntimeOperation(operationId, spec, pack, 'compute'));
+  for (const [operationId, spec] of Object.entries(pack.reads ?? {})) {
+    pushSummary(operationId, 'read', spec, materializeRuntimeOperation(operationId, spec, pack, 'read'));
   }
   for (const [operationId, spec] of Object.entries(pack.writes ?? {})) {
     pushSummary(operationId, 'write', spec, materializeRuntimeOperation(operationId, spec, pack, 'write'));

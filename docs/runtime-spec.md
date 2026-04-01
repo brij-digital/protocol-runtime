@@ -34,11 +34,12 @@ Examples:
 This file is authored by the protocol pack maintainer.
 
 What the maintainer provides there:
-- named `computes`
+- named `reads`
 - named `writes`
+- named reusable `transforms`
 - exact input contracts
 - extra runtime context that still needs to be loaded
-- deterministic transform steps
+- deterministic transform steps and reusable transform fragments
 - mapping from loaded/transformed values into write args/accounts
 - optional `pre` / `post` envelope instructions
 
@@ -55,8 +56,9 @@ Required top-level keys:
 {
   "$schema": "/idl/solana_agent_runtime.schema.v1.json",
   "schema": "solana-agent-runtime.v1",
-  "computes": {},
-  "writes": {}
+  "reads": {},
+  "writes": {},
+  "transforms": {}
 }
 ```
 
@@ -67,12 +69,15 @@ Top-level attributes:
 - `schema`
   - required
   - must be `solana-agent-runtime.v1`
-- `computes`
+- `reads`
   - required
-  - object map from operation id to `computeSpec`
+  - object map from operation id to `readSpec`
 - `writes`
   - required
   - object map from operation id to `writeSpec`
+- `transforms`
+  - required
+  - object map from transform id to `transformSpec`
 
 No other top-level attributes are allowed.
 
@@ -129,9 +134,9 @@ Attributes:
   - optional
   - scalar type string for `type = scalar`
 
-## `computeSpec`
+## Shared operation core
 
-A compute operation has these attributes:
+Both `readSpec` and `writeSpec` share the same preparation phase:
 
 - `instruction`
   - optional
@@ -145,7 +150,19 @@ A compute operation has these attributes:
   - array of `loadStepSpec`
 - `transform`
   - optional
-  - array of `transformStepSpec`
+  - array of:
+    - inline `transformStepSpec`, or
+    - string references to top-level `transforms`
+
+This shared shape is intentional:
+- reads and writes often need the same input contract
+- both may need to load extra runtime state
+- both may need deterministic derived values before they diverge
+
+## `readSpec`
+
+A read operation has these attributes:
+
 - `read_output`
   - optional
   - `readOutputSpec`
@@ -154,19 +171,6 @@ A compute operation has these attributes:
 
 A contract write operation has these attributes:
 
-- `instruction`
-  - optional
-  - string
-  - target instruction name in Codama
-- `inputs`
-  - optional
-  - map of input name -> `inputSpec`
-- `load`
-  - optional
-  - array of `loadStepSpec`
-- `transform`
-  - optional
-  - array of `transformStepSpec`
 - `args`
   - optional
   - map of arg name -> scalar binding
@@ -188,6 +192,44 @@ A contract write operation has these attributes:
 - `read_output`
   - optional
   - `readOutputSpec`
+
+## `transformSpec`
+
+Top-level `transforms` is a reusable catalog.
+
+Each entry is:
+- a named array of `transformStepSpec`
+
+Operations can reference these entries from their local `transform` array by name.
+
+Example:
+
+```json
+{
+  "transforms": {
+    "swap_direction": [
+      {
+        "name": "a_to_b",
+        "kind": "compare.equals",
+        "left": "$whirlpool_data.token_mint_a",
+        "right": "$input.token_in_mint"
+      }
+    ]
+  },
+  "reads": {
+    "quote_exact_in": {
+      "load": [],
+      "transform": ["swap_direction"]
+    }
+  },
+  "writes": {
+    "swap_exact_in": {
+      "load": [],
+      "transform": ["swap_direction"]
+    }
+  }
+}
+```
 
 ## Load reference
 
@@ -260,7 +302,7 @@ Optional attributes:
 
 ## Transform reference
 
-`transform` is the deterministic expression language used inside a compute or write operation.
+`transform` is the deterministic expression language used inside a read or write operation.
 
 ### Arithmetic kinds
 
@@ -445,7 +487,7 @@ In the Orca pack:
 
 - `quote_exact_in`
   - decodes the `Whirlpool`
-  - computes direction, tick arrays, `estimated_out`, `minimum_out`
+  - derives direction, tick arrays, `estimated_out`, `minimum_out`
   - returns a typed quote object
 
 - `swap_exact_in`
@@ -503,6 +545,7 @@ Put logic in Codama when it is:
 
 Put logic in the runtime spec when it is:
 - deterministic protocol-specific transform
+- reusable deterministic transform fragments shared by reads and writes
 - dynamic value materialization for a write
 - small transaction-envelope logic around a write
 

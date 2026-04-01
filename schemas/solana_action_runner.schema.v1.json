@@ -65,7 +65,7 @@
           "minLength": 1
         },
         "kind": {
-          "enum": ["index_view", "compute", "write"]
+          "enum": ["index_view", "read", "write"]
         },
         "protocolId": {
           "type": "string",

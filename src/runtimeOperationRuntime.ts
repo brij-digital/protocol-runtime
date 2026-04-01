@@ -2,7 +2,7 @@ export {
   explainRuntimeOperationBridge as explainRuntimeOperation,
   prepareRuntimeInstruction,
   prepareRuntimeOperation,
-  runRuntimeCompute,
+  runRuntimeRead,
 } from './operationExecutionRuntime.js';
 export {
   hydrateAndValidateInputShape,
@@ -15,7 +15,7 @@ export {
 
 export type {
   PreparedMetaInstruction,
-  PreparedMetaCompute,
+  PreparedMetaRead,
   PreparedMetaOperation,
 } from './operationExecutionRuntime.js';
 export type {

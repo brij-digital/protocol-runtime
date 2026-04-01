@@ -5,23 +5,30 @@
   "type": "object",
   "required": [
     "schema",
-    "computes",
-    "writes"
+    "reads",
+    "writes",
+    "transforms"
   ],
   "properties": {
     "schema": {
       "const": "solana-agent-runtime.v1"
     },
-    "computes": {
+    "reads": {
       "type": "object",
       "additionalProperties": {
-        "$ref": "#/$defs/computeSpec"
+        "$ref": "#/$defs/readSpec"
       }
     },
     "writes": {
       "type": "object",
       "additionalProperties": {
         "$ref": "#/$defs/writeSpec"
+      }
+    },
+    "transforms": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/transformSpec"
       }
     }
   },
@@ -193,7 +200,23 @@
         }
       ]
     },
-    "computeSpec": {
+    "transformUseSpec": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/transformStepSpec"
+        }
+      ]
+    },
+    "transformSpec": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/transformStepSpec"
+      }
+    },
+    "readSpec": {
       "type": "object",
       "properties": {
         "instruction": {
@@ -214,7 +237,7 @@
         "transform": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/transformStepSpec"
+            "$ref": "#/$defs/transformUseSpec"
           }
         },
         "read_output": {
@@ -244,7 +267,7 @@
         "transform": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/transformStepSpec"
+            "$ref": "#/$defs/transformUseSpec"
           }
         },
         "args": {

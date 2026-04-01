@@ -144,7 +144,7 @@ export type PreparedMetaOperation = {
   postInstructions: PreparedPostInstruction[];
 };
 
-export type PreparedMetaCompute = {
+export type PreparedMetaRead = {
   protocolId: string;
   operationId: string;
   derived: Record<string, unknown>;
@@ -610,20 +610,20 @@ export async function prepareRuntimeOperation(options: {
   };
 }
 
-export async function runRuntimeCompute(options: {
+export async function runRuntimeRead(options: {
   protocolId: string;
   operationId: string;
   input: Record<string, unknown>;
   connection: Connection;
   walletPublicKey: PublicKey;
-}): Promise<PreparedMetaCompute> {
+}): Promise<PreparedMetaRead> {
   const protocol = await getProtocolById(options.protocolId);
   const resolved = await resolveRuntimeOperation({
     protocolId: options.protocolId,
     operationId: options.operationId,
   });
-  if (resolved.kind !== 'compute') {
-    throw new Error(`Operation ${options.operationId} is not a compute capability.`);
+  if (resolved.kind !== 'read') {
+    throw new Error(`Operation ${options.operationId} is not a read capability.`);
   }
   const runtime = resolved.pack;
   const idl = await loadProtocolIdl(options.protocolId);

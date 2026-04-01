@@ -25,7 +25,7 @@ test('runActionRunner resolves step outputs through a linear pipeline', async ()
         },
         {
           id: 'pair',
-          kind: 'compute',
+          kind: 'read',
           protocolId: 'demo',
           operationId: 'pair_up',
           input: {
