@@ -77,7 +77,7 @@ Top-level attributes:
   - object map from operation id to `writeSpec`
 - `transforms`
   - required
-  - object map from transform id to `transformSpec`
+  - object map from transform id to an array of `transformStepSpec`
 
 No other top-level attributes are allowed.
 
@@ -124,9 +124,9 @@ Attributes:
   - optional
   - string
 
-### `outputSpec`
+### `views[*].output`
 
-Typed output contract for a read operation.
+Typed output contract for a view operation.
 
 Attributes:
 - `type`
@@ -175,7 +175,7 @@ A contract write operation has these attributes:
   - optional
   - array of `postInstructionSpec`
 
-## `transformSpec`
+## `transforms`
 
 Top-level `transforms` is the only place where transform steps are declared.
 

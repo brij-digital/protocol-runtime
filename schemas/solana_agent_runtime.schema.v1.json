@@ -28,7 +28,10 @@
     "transforms": {
       "type": "object",
       "additionalProperties": {
-        "$ref": "#/$defs/transformSpec"
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/transformStepSpec"
+        }
       }
     }
   },
@@ -100,55 +103,6 @@
       },
       "additionalProperties": false
     },
-    "viewOutputSpec": {
-      "type": "object",
-      "required": [
-        "type",
-        "source"
-      ],
-      "properties": {
-        "type": {
-          "type": "string",
-          "enum": [
-            "array",
-            "object",
-            "scalar"
-          ]
-        },
-        "source": {
-          "type": "string"
-        },
-        "object_schema": {
-          "$ref": "#/$defs/outputObjectSchemaSpec"
-        },
-        "item_schema": {
-          "$ref": "#/$defs/outputObjectSchemaSpec"
-        },
-        "scalar_type": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false
-    },
-    "accountBindingSpec": {
-      "type": "string"
-    },
-    "argBindingSpec": {
-      "oneOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "number"
-        },
-        {
-          "type": "boolean"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
     "remainingAccountMetaSpec": {
       "type": "object",
       "required": ["pubkey"],
@@ -178,15 +132,6 @@
         }
       ]
     },
-    "transformUseSpec": {
-      "type": "string"
-    },
-    "transformSpec": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/transformStepSpec"
-      }
-    },
     "viewSpec": {
       "type": "object",
       "properties": {
@@ -205,11 +150,38 @@
         "transform": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/transformUseSpec"
+            "type": "string"
           }
         },
         "output": {
-          "$ref": "#/$defs/viewOutputSpec"
+          "type": "object",
+          "required": [
+            "type",
+            "source"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "array",
+                "object",
+                "scalar"
+              ]
+            },
+            "source": {
+              "type": "string"
+            },
+            "object_schema": {
+              "$ref": "#/$defs/outputObjectSchemaSpec"
+            },
+            "item_schema": {
+              "$ref": "#/$defs/outputObjectSchemaSpec"
+            },
+            "scalar_type": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -229,19 +201,32 @@
         "transform": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/transformUseSpec"
+            "type": "string"
           }
         },
         "args": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/$defs/argBindingSpec"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "accounts": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/$defs/accountBindingSpec"
+            "type": "string"
           }
         },
         "remaining_accounts": {
