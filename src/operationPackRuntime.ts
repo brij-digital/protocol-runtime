@@ -75,6 +75,8 @@ type AgentViewSpec = {
   };
   inputs?: Record<string, RuntimeInputDecl>;
   steps?: RuntimeOperationStepSpec[];
+  pre?: unknown[];
+  post?: unknown[];
   output: ReadOutputSpec;
 };
 

@@ -200,6 +200,18 @@
             "$ref": "#/$defs/operationStepSpec"
           }
         },
+        "pre": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/preInstructionSpec"
+          }
+        },
+        "post": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/postInstructionSpec"
+          }
+        },
         "output": {
           "type": "object",
           "required": [
