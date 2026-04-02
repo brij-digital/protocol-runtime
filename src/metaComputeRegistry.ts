@@ -167,6 +167,19 @@ function floorDivBigInt(dividend: bigint, divisor: bigint): bigint {
   return signsDiffer ? quotient - 1n : quotient;
 }
 
+function ceilDivBigInt(dividend: bigint, divisor: bigint): bigint {
+  if (divisor === 0n) {
+    throw new Error('divisor must not be zero.');
+  }
+  const quotient = dividend / divisor;
+  const remainder = dividend % divisor;
+  if (remainder === 0n) {
+    return quotient;
+  }
+  const signsMatch = (dividend < 0n) === (divisor < 0n);
+  return signsMatch ? quotient + 1n : quotient;
+}
+
 function readPathFromValue(value: unknown, path: string): unknown {
   const cleaned = path.startsWith('$') ? path.slice(1) : path;
   const parts = cleaned.split('.').filter(Boolean);
@@ -238,6 +251,50 @@ async function runMathFloorDiv(step: ComputeStepResolved): Promise<string> {
   const dividend = asBigInt(step.dividend, `compute:${step.name}:dividend`);
   const divisor = asBigInt(step.divisor, `compute:${step.name}:divisor`);
   return toStringInteger(floorDivBigInt(dividend, divisor));
+}
+
+async function runMathMin(step: ComputeStepResolved): Promise<string> {
+  const values = asArray(step.values, `compute:${step.name}:values`);
+  if (values.length < 1) {
+    throw new Error(`compute:${step.name}:values must contain at least 1 element.`);
+  }
+  let result = asBigInt(values[0], `compute:${step.name}:values[0]`);
+  for (let index = 1; index < values.length; index += 1) {
+    const candidate = asBigInt(values[index], `compute:${step.name}:values[${index}]`);
+    if (candidate < result) {
+      result = candidate;
+    }
+  }
+  return toStringInteger(result);
+}
+
+async function runMathMax(step: ComputeStepResolved): Promise<string> {
+  const values = asArray(step.values, `compute:${step.name}:values`);
+  if (values.length < 1) {
+    throw new Error(`compute:${step.name}:values must contain at least 1 element.`);
+  }
+  let result = asBigInt(values[0], `compute:${step.name}:values[0]`);
+  for (let index = 1; index < values.length; index += 1) {
+    const candidate = asBigInt(values[index], `compute:${step.name}:values[${index}]`);
+    if (candidate > result) {
+      result = candidate;
+    }
+  }
+  return toStringInteger(result);
+}
+
+async function runMathMulDivFloor(step: ComputeStepResolved): Promise<string> {
+  const multiplicand = asBigInt(step.multiplicand, `compute:${step.name}:multiplicand`);
+  const multiplier = asBigInt(step.multiplier, `compute:${step.name}:multiplier`);
+  const divisor = asBigInt(step.divisor, `compute:${step.name}:divisor`);
+  return toStringInteger(floorDivBigInt(multiplicand * multiplier, divisor));
+}
+
+async function runMathMulDivCeil(step: ComputeStepResolved): Promise<string> {
+  const multiplicand = asBigInt(step.multiplicand, `compute:${step.name}:multiplicand`);
+  const multiplier = asBigInt(step.multiplier, `compute:${step.name}:multiplier`);
+  const divisor = asBigInt(step.divisor, `compute:${step.name}:divisor`);
+  return toStringInteger(ceilDivBigInt(multiplicand * multiplier, divisor));
 }
 
 async function runListRangeMap(step: ComputeStepResolved): Promise<number[]> {
@@ -326,6 +383,39 @@ async function runListFirst(step: ComputeStepResolved): Promise<unknown> {
   return items[0];
 }
 
+async function runListSortBy(step: ComputeStepResolved): Promise<unknown[]> {
+  const items = asArray(step.items, `compute:${step.name}:items`);
+  const path = String(step.path ?? '');
+  if (!path) {
+    throw new Error(`compute:${step.name}:path must be provided.`);
+  }
+  const order = step.order === undefined ? 'asc' : String(step.order);
+  if (order !== 'asc' && order !== 'desc') {
+    throw new Error(`compute:${step.name}:order must be asc or desc.`);
+  }
+  return [...items].sort((left, right) => {
+    const cmp = compareOrdered(readPathFromValue(left, path), readPathFromValue(right, path));
+    return order === 'asc' ? cmp : -cmp;
+  });
+}
+
+async function runListFindFirst(step: ComputeStepResolved): Promise<unknown> {
+  const items = asArray(step.items, `compute:${step.name}:items`);
+  const whereArray =
+    step.where === undefined ? [] : Array.isArray(step.where) ? step.where : [step.where];
+  const clauses = whereArray.map((entry, index) =>
+    parseListWhereClause(entry, `compute:${step.name}:where[${index}]`),
+  );
+  const match = items.find((item) => matchesWhere(item, clauses));
+  if (match === undefined) {
+    if (step.allow_empty === true) {
+      return null;
+    }
+    throw new Error(`compute:${step.name}:no matching item found.`);
+  }
+  return match;
+}
+
 function pickByPath(items: unknown[], path: string, mode: 'min' | 'max', label: string): unknown {
   if (items.length === 0) {
     throw new Error(`${label}:items must not be empty.`);
@@ -383,6 +473,22 @@ async function runCoalesce(step: ComputeStepResolved): Promise<unknown> {
     }
   }
   return null;
+}
+
+async function runObjectCreate(step: ComputeStepResolved): Promise<Record<string, unknown>> {
+  return { ...asRecord(step.fields, `compute:${step.name}:fields`) };
+}
+
+async function runObjectMerge(step: ComputeStepResolved): Promise<Record<string, unknown>> {
+  const objects = asArray(step.objects, `compute:${step.name}:objects`);
+  const merged: Record<string, unknown> = {};
+  objects.forEach((entry, index) => {
+    if (entry === null || entry === undefined) {
+      return;
+    }
+    Object.assign(merged, asRecord(entry, `compute:${step.name}:objects[${index}]`));
+  });
+  return merged;
 }
 
 function encodePdaSeed(seed: PdaSeedSpec, item: unknown, label: string): Uint8Array {
@@ -552,13 +658,21 @@ const COMPUTE_EXECUTORS: Record<string, ComputeExecutor> = {
   'math.mul': runMathMul,
   'math.sub': runMathSub,
   'math.floor_div': runMathFloorDiv,
+  'math.min': runMathMin,
+  'math.max': runMathMax,
+  'math.mul_div_floor': runMathMulDivFloor,
+  'math.mul_div_ceil': runMathMulDivCeil,
   'list.range_map': runListRangeMap,
   'list.get': runListGet,
   'list.filter': runListFilter,
   'list.first': runListFirst,
+  'list.sort_by': runListSortBy,
+  'list.find_first': runListFindFirst,
   'list.min_by': runListMinBy,
   'list.max_by': runListMaxBy,
   coalesce: runCoalesce,
+  'object.create': runObjectCreate,
+  'object.merge': runObjectMerge,
   'pda(seed_spec)': runPdaSeedSpec,
   'compare.equals': runCompareEquals,
   'compare.not_equals': runCompareNotEquals,

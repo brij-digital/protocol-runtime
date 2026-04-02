@@ -411,6 +411,108 @@
           "required": [
             "name",
             "kind",
+            "values"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "math.min"
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/jsonValue"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "name",
+            "kind",
+            "values"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "math.max"
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/jsonValue"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "name",
+            "kind",
+            "multiplicand",
+            "multiplier",
+            "divisor"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "math.mul_div_floor"
+            },
+            "multiplicand": {
+              "$ref": "#/$defs/jsonValue"
+            },
+            "multiplier": {
+              "$ref": "#/$defs/jsonValue"
+            },
+            "divisor": {
+              "$ref": "#/$defs/jsonValue"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "name",
+            "kind",
+            "multiplicand",
+            "multiplier",
+            "divisor"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "math.mul_div_ceil"
+            },
+            "multiplicand": {
+              "$ref": "#/$defs/jsonValue"
+            },
+            "multiplier": {
+              "$ref": "#/$defs/jsonValue"
+            },
+            "divisor": {
+              "$ref": "#/$defs/jsonValue"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "name",
+            "kind",
             "addresses",
             "account_type"
           ],
@@ -455,6 +557,72 @@
           "required": [
             "name",
             "kind",
+            "items",
+            "path"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "list.sort_by"
+            },
+            "items": {
+              "$ref": "#/$defs/jsonValue"
+            },
+            "path": {
+              "type": "string"
+            },
+            "order": {
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "name",
+            "kind",
+            "items"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "list.find_first"
+            },
+            "items": {
+              "$ref": "#/$defs/jsonValue"
+            },
+            "where": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/listWhereClauseSpec"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/listWhereClauseSpec"
+                  }
+                }
+              ]
+            },
+            "allow_empty": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "name",
+            "kind",
             "owner",
             "mint"
           ],
@@ -476,6 +644,52 @@
             },
             "allow_owner_off_curve": {
               "$ref": "#/$defs/jsonValue"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "name",
+            "kind",
+            "fields"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "object.create"
+            },
+            "fields": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/jsonValue"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "name",
+            "kind",
+            "objects"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "object.merge"
+            },
+            "objects": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/jsonValue"
+              }
             }
           },
           "additionalProperties": false
