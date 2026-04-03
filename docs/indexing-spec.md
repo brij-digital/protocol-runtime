@@ -4,16 +4,40 @@ This page documents the current `declarative-decoder-runtime.v1` contract.
 
 It is the source of truth for:
 - decoder artifacts
-- ingest sources
-- match rules
-- ingest pipelines
+- ingest source definitions
+- match and routing rules
+- canonical ingest pipelines
 - projections
-- indexed read operations (`operations.*.index_view`)
+- indexed read and discovery surfaces through `operations.*.index_view`
 
-It does **not** describe:
-- Codama instruction execution
-- runtime write preparation
-- action runner flows
+It does **not** define:
+- Codama write execution
+- transaction drafting
+- wallet submission
+- runner orchestration
+
+The intended split is:
+- the indexing spec owns how raw chain activity becomes canonical state, records, and queryable views
+- the runtime spec owns how agents prepare `views`, `writes`, and transaction-side transforms
+
+## Mental model
+
+The indexing runtime has a simple ordered flow:
+
+1. `decoderArtifacts`
+   - declare how program data gets decoded
+2. `sources`
+   - declare where updates come from
+3. `matchRules`
+   - route each decoded update into a named pipeline
+4. `pipelines`
+   - extract, resolve, compute, and emit canonical records or state
+5. `projectionSpecs`
+   - materialize rankings, feeds, snapshots, series, or context views
+6. `operations.*.index_view`
+   - expose indexed query surfaces to callers
+
+That makes this spec an ingest-and-query contract, not a transaction-execution contract.
 
 ## Top-level shape
 
@@ -40,10 +64,10 @@ Attributes:
   - must be `declarative-decoder-runtime.v1`
 - `version`
   - optional
-  - string
+  - spec revision string
 - `protocolId`
   - required
-  - protocol id
+  - protocol identifier
 - `label`
   - optional
   - human label
@@ -85,13 +109,13 @@ Attributes:
   - path to Codama artifact
 - `artifact`
   - required
-  - artifact id used by the ingest runtime
+  - runtime artifact id
 - `entrypoint`
   - optional
   - custom decoder entrypoint
 - `notes`
   - optional
-  - string
+  - free-form note
 
 ## `sourceSpec`
 
@@ -138,7 +162,7 @@ Attributes:
   - `signature`, `slot`, `time`, or `opaque`
 - `field`
   - optional
-  - field used as cursor
+  - cursor field
 
 ### `sourceTargetsSpec`
 
@@ -152,10 +176,10 @@ Attributes:
   - `incomplete_state_from_records`
 - `stateRecordName`
   - required
-  - state record name
+  - target state record name
 - `missingFields`
   - optional
-  - array of missing state fields
+  - array of state fields still missing
 - `recordNames`
   - optional
   - array of driving record names
@@ -168,6 +192,8 @@ Attributes:
 - `limit`
   - optional
   - integer
+
+This is what lets snapshot sources backfill incomplete canonical state from already-seen activity.
 
 ## `matchRuleSpec`
 
@@ -204,11 +230,11 @@ Attributes:
   - account name
 - `where`
   - optional
-  - object of additional match predicates
+  - additional predicates
 
 ## `pipelineSpec`
 
-Transforms one matched update into canonical records/state.
+Transforms one matched update into canonical records or canonical state.
 
 Attributes:
 - `extract`
@@ -223,6 +249,12 @@ Attributes:
 - `emit`
   - optional
   - `emitSpec`
+
+The common pipeline pattern is:
+- extract stable names from the decoded update
+- resolve missing chain or canonical context
+- compute normalized values
+- emit canonical records or state
 
 ### `resolveStepSpec`
 
@@ -409,9 +441,55 @@ Attributes:
   - required
   - `asc` or `desc`
 
+## `operations.*`
+
+The indexing spec can expose operations in two ways:
+- `contract_view`
+  - narrow account-oriented contract surfaces
+- `index_view`
+  - indexed query and discovery surfaces
+
+The important one in practice is `index_view`.
+
 ## `operations.*.index_view`
 
-This is the part of the indexing spec that now owns indexed read/discovery surfaces.
+This is the part of the indexing spec that owns indexed read and discovery surfaces.
+
+### `runtimeInputSpec`
+
+Used inside `index_view.inputs`.
+
+Attributes:
+- `type`
+  - required
+  - string
+- `required`
+  - optional
+  - boolean
+- `default`
+  - optional
+  - template or literal
+
+### `readOutputSpec`
+
+Used inside `index_view.read_output`.
+
+Attributes:
+- `type`
+  - required
+  - `array`, `object`, `scalar`, or `list`
+- `source`
+  - required
+  - runtime expression
+- `object_schema`
+  - optional
+  - schema for `type = object`
+- `item_schema`
+  - optional
+  - schema for array or list items
+- `scalar_type`
+  - optional
+  - scalar type for `type = scalar`
 
 ### `canonicalViewSpec`
 
@@ -483,7 +561,7 @@ Attributes:
   - map of input name -> `runtimeInputSpec`
 - `read_output`
   - optional
-  - `readOutputSpec`
+  - typed read contract for the indexed view
 - `source_kind`
   - optional
   - source mode
@@ -492,13 +570,13 @@ Attributes:
   - freshness config
 - `entity_type`
   - optional
-  - string
+  - entity label
 - `title`
   - optional
-  - string
+  - UI title
 - `description`
   - optional
-  - string
+  - UI description
 - `sync_disabled`
   - optional
   - boolean
@@ -518,19 +596,19 @@ Attributes:
   - optional
   - selection config
 - `canonical`
-  - optional
+  - conditional
   - `canonicalViewSpec`
 - `projection`
-  - optional
+  - conditional
   - `viewProjectionSpec`
 
-Rules:
-- if `source_kind = account_changes`
-  - `bootstrap` and `query` are required
-- otherwise
-  - `canonical` and `projection` are required
+Rule:
+- if `source_kind = account_changes`, then `bootstrap` and `query` are required
+- otherwise, `canonical` and `projection` are required
 
 ### `contractViewSpec`
+
+Currently narrow and account-oriented.
 
 Attributes:
 - `kind`
@@ -557,19 +635,9 @@ Attributes:
 - `select`
   - optional
 
-### `operationSpec`
+## Concrete Pump AMM example
 
-Attributes:
-- `contract_view`
-  - optional
-  - `contractViewSpec`
-- `index_view`
-  - optional
-  - `indexViewSpec`
-
-## Pump AMM example
-
-Minimal shape from `pump_amm.indexing.json`:
+This is a real pattern from the Pump AMM indexing pack:
 
 ```json
 {
@@ -620,11 +688,22 @@ Minimal shape from `pump_amm.indexing.json`:
 }
 ```
 
+What this shows:
+- raw decoded activity enters through a source
+- a match rule routes one event type into a named pipeline
+- the pipeline resolves canonical context
+- computes normalized values
+- emits a canonical event record
+
+Later, an `index_view` can read from those canonical records or from derived projections without having to understand raw chain data again.
+
 ## Useful links
 
-- schema:
+- indexing schema:
   - `/idl/declarative_decoder_runtime.schema.v1.json`
-- pump amm indexing:
+- Pump AMM indexing pack:
   - `/idl/pump_amm.indexing.json`
-- orca indexing:
+- Orca Whirlpool indexing pack:
   - `/idl/orca_whirlpool.indexing.json`
+- runtime spec reference:
+  - `/docs/runtime-spec/`
