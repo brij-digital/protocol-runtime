@@ -44,7 +44,6 @@ Each protocol declares both paths in `registry.json`:
 
 - `ingestSpecPath` — used by the Carbon plan compiler. `null` for protocols with no ingest (e.g. manual token index).
 - `indexedReadsPath` — used by the canonical view runner and query layer.
-- `indexingSpecPath` — **deprecated**, kept as fallback only.
 
 ---
 
@@ -205,16 +204,10 @@ Each operation defines an indexed read surface.
 
 ---
 
-## Deprecated features
+## Unsupported in V1 authoring
 
-### `resolve` steps in pipelines
+- `resolve` steps in ingest pipelines
+- registry-level `indexingSpecPath`
+- top-level `projectionSpecs`
 
-`resolve` steps (`state.lookup`, `rpc.token_supply`, `rpc.token_account_balance`) are **deprecated** and should not be used in new ingest specs. They exist in the schema for backward compatibility but violate the raw-facts-only model.
-
-### `indexingSpecPath` in registry
-
-Use `ingestSpecPath` + `indexedReadsPath` instead. The old field is kept as a fallback only.
-
-### `projectionSpecs` in ingest
-
-Projection configuration now belongs in the indexed-reads spec under `operations.*.index_view.projection`, not as a top-level `projectionSpecs` block.
+These are outside the supported authoring model. Ingest is `extract -> compute -> emit`, and projection/query configuration lives in `*.indexed-reads.json`.
