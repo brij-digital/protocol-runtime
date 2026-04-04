@@ -367,11 +367,9 @@ function buildWriteInputSpecFromCodamaRef(options: {
 
   const account = options.accounts.find((candidate) => toSnakeCase(candidate.name) === options.inputName);
   if (account) {
-    if (account.signer) {
-      throw new Error(
-        `Write ${options.protocolId}/${options.operationId} references signer input ${options.inputName}; wallet signer must not be user-provided.`,
-      );
-    }
+    // Signer accounts that are explicitly provided via $input in the write spec
+    // are additional signers (e.g. a fresh keypair for open_position).
+    // The wallet signer is mapped via $wallet, not $input, so this is safe.
     return {
       type: 'pubkey',
     };

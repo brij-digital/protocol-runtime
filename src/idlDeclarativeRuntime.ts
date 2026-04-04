@@ -509,11 +509,10 @@ function resolveInstructionAccounts(options: {
       throw new Error(`Missing account mapping for ${keyName}.`);
     }
 
-    if (pubkey && signer && !pubkey.equals(options.walletPublicKey)) {
-      throw new Error(
-        `Unsupported signer ${keyName}: only the connected wallet signer is currently supported.`,
-      );
-    }
+    // Additional signers (e.g. fresh keypairs for open_position) are valid.
+    // The wallet is just one of potentially multiple signers.
+    // The caller is responsible for providing the additional signer keypairs
+    // when submitting the transaction.
 
     resolved.set(keyName, pubkey);
     resolving.delete(keyName);
