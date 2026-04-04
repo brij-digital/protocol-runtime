@@ -55,7 +55,7 @@ async function main() {
       fail(`Protocol ${protocol.id} still declares legacy idlPath.`);
     }
 
-    for (const key of ['codamaIdlPath', 'agentRuntimePath', 'indexingSpecPath']) {
+    for (const key of ['codamaIdlPath', 'agentRuntimePath', 'indexedReadsPath']) {
       const value = protocol[key];
       if (value == null) {
         continue;
@@ -74,7 +74,7 @@ async function main() {
           fail(`${filePath} has invalid agent runtime schema marker.`);
         }
       }
-      if (key === 'indexingSpecPath') {
+      if (key === 'indexedReadsPath') {
         if (parsed.schema !== 'declarative-decoder-runtime.v1') {
           fail(`${filePath} has invalid declarative indexing schema marker.`);
         }
@@ -111,8 +111,8 @@ async function main() {
     if (isActive && protocol.agentRuntimePath == null) {
       fail(`Protocol ${protocol.id} is active but has no agentRuntimePath; active pack contracts must be agent-runtime-backed.`);
     }
-    if (isActive && protocol.indexingSpecPath == null) {
-      fail(`Protocol ${protocol.id} is active but has no indexingSpecPath; active pack contracts must be indexing-backed.`);
+    if (isActive && protocol.indexedReadsPath == null) {
+      fail(`Protocol ${protocol.id} is active but has no indexedReadsPath; active pack contracts must be indexed-reads-backed.`);
     }
     if (protocol.appPath != null) {
       fail(`Protocol ${protocol.id} still declares appPath; active pack contracts are codama/indexing/agent-runtime only.`);

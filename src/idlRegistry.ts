@@ -11,7 +11,6 @@ export type ProtocolManifest = {
   agentRuntimePath?: string;
   ingestSpecPath?: string | null;
   indexedReadsPath?: string;
-  indexingSpecPath?: string;
   transport: string;
   supportedCommands: string[];
   status: 'active' | 'inactive';
@@ -145,7 +144,7 @@ export async function loadProtocolIndexingSpec(protocolId: string): Promise<Inde
   }
 
   const manifest = await getProtocolById(protocolId);
-  const indexedReadsPath = manifest.indexedReadsPath ?? manifest.indexingSpecPath;
+  const indexedReadsPath = manifest.indexedReadsPath;
   if (!indexedReadsPath) {
     indexingSpecCache.set(protocolId, null);
     return null;

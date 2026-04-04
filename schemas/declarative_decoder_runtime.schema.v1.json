@@ -51,12 +51,6 @@
         "$ref": "#/$defs/pipelineSpec"
       }
     },
-    "projectionSpecs": {
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/$defs/projectionSpec"
-      }
-    },
     "operations": {
       "type": "object",
       "additionalProperties": {
@@ -357,11 +351,6 @@
           "type": "object",
           "additionalProperties": { "$ref": "#/$defs/stringOrTemplate" }
         },
-        "resolve": {
-          "type": "array",
-          "description": "Deprecated for ingest pipelines. Kept optional for backward-compatible validation only.",
-          "items": { "$ref": "#/$defs/resolveStepSpec" }
-        },
         "compute": {
           "type": "array",
           "items": { "$ref": "#/$defs/computeStepSpec" }
@@ -371,37 +360,6 @@
         }
       },
       "additionalProperties": false
-    },
-    "resolveStepSpec": {
-      "type": "object",
-      "description": "Deprecated. New ingest pipelines should not use resolve steps.",
-      "required": ["name", "resolve"],
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "resolve": {
-          "type": "string",
-          "enum": [
-            "rpc.token_supply",
-            "rpc.account_info",
-            "rpc.token_account_balance",
-            "state.lookup",
-            "resource.lookup",
-            "custom"
-          ]
-        },
-        "required": {
-          "type": "boolean"
-        },
-        "requiredFields": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "additionalProperties": { "$ref": "#/$defs/stringOrTemplate" }
     },
     "computeStepSpec": {
       "type": "object",
