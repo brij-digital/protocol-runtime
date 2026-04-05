@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "/idl/solana_action_runner.schema.v1.json",
+  "$id": "/schemas/solana_action_runner.schema.v1.json",
   "title": "Solana Action Runner Spec V1",
   "type": "object",
   "required": ["schema", "actionId", "title", "inputs", "steps", "output"],
