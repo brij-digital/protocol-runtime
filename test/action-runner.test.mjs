@@ -17,7 +17,7 @@ test('runActionRunner resolves step outputs through a linear pipeline', async ()
         {
           id: 'token_in',
           kind: 'index_view',
-          protocolId: 'token-index-mainnet',
+          protocolId: 'demo-index',
           operationId: 'tokens_get',
           input: {
             symbol: '$input.token_in',
