@@ -8,7 +8,6 @@ export {
   hydrateAndValidateInputShape,
   hydrateAndValidateRuntimeInputs,
   listRuntimeOperations,
-  resolveIndexViewContract,
   resolveRuntimeOperationFromPack,
   resolveRuntimeOperation,
 } from './operationPackRuntime.js';
@@ -20,7 +19,6 @@ export type {
 } from './operationExecutionRuntime.js';
 export type {
   ResolvedRuntimeOperation,
-  ResolvedIndexViewContract,
   RuntimeOperationExplain,
   RuntimeOperationInputSummary,
   RuntimeOperationSummary,

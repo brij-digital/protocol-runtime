@@ -55,7 +55,7 @@ async function main() {
       fail(`Protocol ${protocol.id} still declares legacy idlPath.`);
     }
 
-    for (const key of ['codamaIdlPath', 'agentRuntimePath', 'indexedReadsPath']) {
+    for (const key of ['codamaIdlPath', 'agentRuntimePath']) {
       const value = protocol[key];
       if (value == null) {
         continue;
@@ -74,33 +74,6 @@ async function main() {
           fail(`${filePath} has invalid agent runtime schema marker.`);
         }
       }
-      if (key === 'indexedReadsPath') {
-        if (parsed.schema !== 'declarative-decoder-runtime.v1') {
-          fail(`${filePath} has invalid declarative indexing schema marker.`);
-        }
-        const runtime = asObject(parsed, `${filePath}`);
-        const decoderArtifacts = asObject(runtime.decoderArtifacts, `${filePath}.decoderArtifacts`);
-        for (const [artifactName, artifactValue] of Object.entries(decoderArtifacts)) {
-          const artifact = asObject(artifactValue, `${filePath}.decoderArtifacts.${artifactName}`);
-          if (artifact.family === 'codama') {
-            if (typeof artifact.codamaPath !== 'string' || !artifact.codamaPath.startsWith('/idl/')) {
-              fail(`${filePath}.decoderArtifacts.${artifactName} requires codamaPath.`);
-            }
-            const codamaPath = path.join(packDir, artifact.codamaPath.slice('/idl/'.length));
-            await assertFile(codamaPath);
-            const codama = await loadJson(codamaPath);
-            if (codama.standard !== 'codama') {
-              fail(`${codamaPath} is not a Codama IDL.`);
-            }
-          }
-          if (artifact.codecIdlPath != null) {
-            fail(`${filePath}.decoderArtifacts.${artifactName} must not declare legacy codecIdlPath.`);
-          }
-          if (artifact.idlPath != null) {
-            fail(`${filePath}.decoderArtifacts.${artifactName} must not declare legacy idlPath.`);
-          }
-        }
-      }
       if (key === 'codamaIdlPath') {
         if (parsed.standard !== 'codama') {
           fail(`${filePath} is not a Codama IDL.`);
@@ -110,9 +83,6 @@ async function main() {
 
     if (isActive && protocol.agentRuntimePath == null) {
       fail(`Protocol ${protocol.id} is active but has no agentRuntimePath; active pack contracts must be agent-runtime-backed.`);
-    }
-    if (isActive && protocol.indexedReadsPath == null) {
-      fail(`Protocol ${protocol.id} is active but has no indexedReadsPath; active pack contracts must be indexed-reads-backed.`);
     }
     if (protocol.appPath != null) {
       fail(`Protocol ${protocol.id} still declares appPath; active pack contracts are codama/indexing/agent-runtime only.`);

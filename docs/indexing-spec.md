@@ -1,70 +1,30 @@
-# Declarative Decoder Runtime V1
+# Declarative Indexing Specs
 
-`declarative-decoder-runtime.v1` covers two related document shapes:
+AppPack indexing is now split into two explicit spec families:
 
-1. **Ingest spec** (`*.ingest.json`) — how raw chain events become canonical records and state
-2. **Indexed reads spec** (`*.indexed-reads.json`) — how stored facts are queried and projected
+1. `*.ingest.json`
+- source-of-truth for canonical raw ingest
+- decoded updates -> `extract -> compute -> emit`
+- writes only raw canonical records and state
 
-Both files share the same `schema: "declarative-decoder-runtime.v1"` header but serve different purposes.
+2. `*.entities.json`
+- source-of-truth for materialized layer-2 read tables
+- projector reads canonical raw, executes the entity transform DSL, and writes entity tables
 
-## Architecture
+The old `*.indexed-reads.json` compatibility shape is removed.
 
-```
-Chain events → [Ingest spec] → Raw canonical facts → Postgres
-                                                        ↓
-Client request → [Indexed reads spec] → Filter/Sort/Aggregate → Response
-```
+## Registry Model
 
-### Design rules
+`registry.json` now uses:
 
-**Ingest pipelines** store only raw canonical facts:
-- ✅ Direct values from event/account payload
-- ✅ Small pure normalization (unit conversion, rename, booleans)
-- 🚫 No joins (`state.lookup`)
-- 🚫 No external calls (`rpc.token_supply`)
-- 🚫 No derived business metrics (market cap, liquidity, price)
-
-**Indexed reads** expose stored facts:
-- ✅ Filter, sort, aggregate, reshape
-- 🚫 No enrichment at query time
-
-**Enrichment** (price, market cap, liquidity) belongs in the runtime view layer, computed at read time, not baked into indexed data.
-
-## Registry fields
-
-`indexedReadsPath` stays on protocol manifests. Ingest specs now belong to canonical indexings:
-
-```json
-{
-  "protocols": [
-    {
-      "id": "pump-amm-mainnet",
-      "indexedReadsPath": "/idl/pump_amm.indexed-reads.json"
-    }
-  ],
-  "indexings": [
-    {
-      "id": "pump-amm-mainnet",
-      "sources": [
-        {
-          "id": "pump-amm",
-          "protocolId": "pump-amm-mainnet",
-          "ingestSpecPath": "/idl/pump_amm.ingest.json"
-        }
-      ]
-    }
-  ]
-}
-```
-
-- `indexings[].sources[].ingestSpecPath` — used by the Carbon plan compiler.
-- `indexedReadsPath` — used by the canonical view runner and query layer.
-
----
+- `protocols[]` for protocol metadata, Codama, and runtime packs
+- `indexings[]` for indexing jobs
+- `indexings[].sources[]` for ingest source declarations
+- `indexings[].entitySchemaPath` for entity specs
 
 ## Ingest Spec (`*.ingest.json`)
 
-### Top-level shape
+Top-level shape:
 
 ```json
 {
@@ -78,158 +38,38 @@ Client request → [Indexed reads spec] → Filter/Sort/Aggregate → Response
 }
 ```
 
-### `decoderArtifacts`
+Supported model:
 
-Declare how program data gets decoded.
+- `decoderArtifacts`
+- `sources`
+- `matchRules`
+- `pipelines`
 
-```json
-{
-  "pump_swap": {
-    "kind": "generated_idl_decoder",
-    "family": "codama",
-    "codamaPath": "/idl/pump_amm.codama.json",
-    "artifact": "pump_swap"
-  }
-}
-```
+The ingest DSL is for canonical raw emission only. It does not define query surfaces.
 
-### `sources`
+## Entity Specs (`*.entities.json`)
 
-Declare where updates come from.
+Entity specs live in `protocol-registry/indexing/entities/` and are consumed by `protocol-indexing`.
 
-```json
-{
-  "pump_swap_crawler": {
-    "kind": "rpc_transaction_crawler",
-    "programId": "$protocol.programId",
-    "commitment": "confirmed",
-    "decoderRef": "pump_swap",
-    "decodeTargets": ["instruction", "log_event"]
-  }
-}
-```
+Each entity spec owns exactly one materialized table and uses a declarative transform pipeline:
 
-### `matchRules`
+- `source`
+- `transform.extract`
+- `transform.compute`
+- `transform.groupBy`
+- `transform.reduce`
+- `emit`
 
-Route decoded updates into named pipelines.
+That layer is no longer represented as `operations.index_view`.
 
-```json
-[
-  {
-    "source": "pump_swap_crawler",
-    "match": { "decodedType": "event", "name": "BuyEvent" },
-    "pipeline": "trade_buy"
-  }
-]
-```
+## Design Rule
 
-### `pipelines`
+- ingest owns raw completeness
+- entities own materialized read tables
+- runtime owns deterministic read/write execution
 
-Each pipeline has: `extract` → `compute` → `emit`.
+No backward-compatibility path should reintroduce:
 
-**No `resolve` steps.** Ingest pipelines do not join external state or call RPC. If a pipeline needs data not present in the decoded event, that data should come from the event itself or be handled at read time.
-
-```json
-{
-  "trade_buy": {
-    "extract": {
-      "pool": "$decoded.pool",
-      "user": "$decoded.user",
-      "side": "buy",
-      "baseAmountAtomic": "$decoded.base_amount_out",
-      "quoteAmountAtomic": "$decoded.quote_amount_in"
-    },
-    "compute": [
-      {
-        "name": "baseAmountUi",
-        "compute": "math.amount_ui",
-        "amount": "$ctx.baseAmountAtomic",
-        "decimals": 9
-      }
-    ],
-    "emit": {
-      "record": {
-        "recordName": "BuyEvent",
-        "subjectId": "$ctx.pool",
-        "payload": { "...": "raw facts only" }
-      }
-    }
-  }
-}
-```
-
-#### Allowed compute ops in ingest
-
-Only pure normalization:
-- `math.amount_ui` — atomic to UI unit conversion
-- `math.add`, `math.sub`, `math.mul` — basic arithmetic on same-payload values
-- `math.safe_div` — division with zero guard
-- `compare.gt`, `compare.equals` — boolean checks
-- `logic.if` — conditional selection
-- `coalesce` — first non-null value
-
----
-
-## Indexed Reads Spec (`*.indexed-reads.json`)
-
-### Top-level shape
-
-```json
-{
-  "schema": "declarative-decoder-runtime.v1",
-  "protocolId": "pump-amm-mainnet",
-  "programId": "$protocol.programId",
-  "operations": {}
-}
-```
-
-### `operations`
-
-Each operation defines an indexed read surface.
-
-```json
-{
-  "trade_feed": {
-    "index_view": {
-      "kind": "search",
-      "canonical": {
-        "source": "indexed_idl_records",
-        "protocol_id": "pump-amm-mainnet",
-        "record_kind": "event",
-        "record_name": ["BuyEvent", "SellEvent"]
-      },
-      "projection": {
-        "projection_kind": "feed",
-        "sort_by": [{ "field": "eventTime", "dir": "desc" }]
-      }
-    }
-  }
-}
-```
-
-#### Projection kinds
-
-| Kind | Description | Allowed ops |
-|---|---|---|
-| `feed` | Chronological event stream | sort, limit |
-| `snapshot` | Latest state per subject | filter, sort |
-| `series` | Time-bucketed aggregation (OHLCV) | aggregate, bucket |
-| `ranking` | Scored/sorted items | filter, sort, score |
-| `search` | Filterable state queries | filter, sort |
-
-### Freshness
-
-- `active_window_days` controls the default view window for canonical reads.
-- State freshness is computed from `last_updated_at`, which is set on every state emit.
-- If `last_updated_at` is null, readers fall back to `last_event_time`, then `updated_at`.
-- In V1, `resource_id` is the implicit authoritative anchor for account-backed freshness updates.
-
----
-
-## Unsupported in V1 authoring
-
-- `resolve` steps in ingest pipelines
-- registry-level `indexingSpecPath`
-- top-level `projectionSpecs`
-
-These are outside the supported authoring model. Ingest is `extract -> compute -> emit`, and projection/query configuration lives in `*.indexed-reads.json`.
+- `indexedReadsPath`
+- `*.indexed-reads.json`
+- `index_view`

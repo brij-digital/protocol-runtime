@@ -34,7 +34,7 @@
     "sources": {
       "type": "object",
       "minProperties": 1,
-      "description": "Ingest-only. Optional for indexed-reads documents.",
+      "description": "Canonical ingest source definitions.",
       "additionalProperties": {
         "$ref": "#/$defs/sourceSpec"
       }
@@ -42,7 +42,7 @@
     "matchRules": {
       "type": "array",
       "minItems": 1,
-      "description": "Ingest-only. Optional for indexed-reads documents.",
+      "description": "Canonical ingest match rules.",
       "items": {
         "$ref": "#/$defs/matchRuleSpec"
       }
@@ -50,15 +50,9 @@
     "pipelines": {
       "type": "object",
       "minProperties": 1,
-      "description": "Ingest-only. Optional for indexed-reads documents.",
+      "description": "Canonical ingest pipelines.",
       "additionalProperties": {
         "$ref": "#/$defs/pipelineSpec"
-      }
-    },
-    "operations": {
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/$defs/operationSpec"
       }
     }
   },
@@ -661,105 +655,6 @@
         }
       },
       "additionalProperties": true
-    },
-    "contractViewSpec": {
-      "type": "object",
-      "required": ["kind"],
-      "properties": {
-        "kind": {
-          "type": "string",
-          "enum": ["account"]
-        },
-        "source_kind": { "type": "string" },
-        "freshness": { "type": "object", "additionalProperties": true },
-        "entity_type": { "type": "string" },
-        "title": { "type": "string" },
-        "description": { "type": "string" },
-        "bootstrap": { "type": "object", "additionalProperties": true },
-        "refresh": { "type": "object", "additionalProperties": true },
-        "query": { "type": "object", "additionalProperties": true },
-        "target": { "type": "object", "additionalProperties": true },
-        "select": { "type": "object", "additionalProperties": true }
-      },
-      "additionalProperties": false
-    },
-    "indexViewSpec": {
-      "type": "object",
-      "required": ["kind"],
-      "properties": {
-        "kind": {
-          "type": "string",
-          "enum": ["search", "account", "feed", "series", "ranking", "context"]
-        },
-        "inputs": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/runtimeInputSpec"
-          }
-        },
-        "read_output": {
-          "$ref": "#/$defs/readOutputSpec"
-        },
-        "source_kind": { "type": "string" },
-        "freshness": { "type": "object", "additionalProperties": true },
-        "entity_type": { "type": "string" },
-        "title": { "type": "string" },
-        "description": { "type": "string" },
-        "sync_disabled": { "type": "boolean" },
-        "bootstrap": { "type": "object", "additionalProperties": true },
-        "refresh": { "type": "object", "additionalProperties": true },
-        "query": { "type": "object", "additionalProperties": true },
-        "target": { "type": "object", "additionalProperties": true },
-        "select": { "type": "object", "additionalProperties": true },
-        "canonical": {
-          "$ref": "#/$defs/canonicalViewSpec"
-        },
-        "projection": {
-          "$ref": "#/$defs/viewProjectionSpec"
-        }
-      },
-      "additionalProperties": false,
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "source_kind": { "const": "account_changes" }
-            },
-            "required": ["source_kind"]
-          },
-          "then": {
-            "required": ["bootstrap", "query"]
-          }
-        },
-        {
-          "if": {
-            "not": {
-              "properties": {
-                "source_kind": { "const": "account_changes" }
-              },
-              "required": ["source_kind"]
-            }
-          },
-          "then": {
-            "required": ["canonical", "projection"]
-          }
-        }
-      ]
-    },
-    "operationSpec": {
-      "type": "object",
-      "properties": {
-        "contract_view": {
-          "$ref": "#/$defs/contractViewSpec"
-        },
-        "index_view": {
-          "$ref": "#/$defs/indexViewSpec"
-        }
-      },
-      "additionalProperties": true,
-      "not": {
-        "required": ["view"]
-      }
     }
   },
   "additionalProperties": false

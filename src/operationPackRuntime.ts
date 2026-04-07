@@ -1,6 +1,5 @@
 import {
   getProtocolById,
-  loadProtocolIndexingSpec,
   loadProtocolAgentRuntime,
   type ProtocolManifest,
 } from './idlRegistry.js';
@@ -40,11 +39,6 @@ type OutputObjectSchemaSpec = {
   entity_type?: string;
   identity_fields?: string[];
   fields: Record<string, OutputFieldSpec>;
-};
-
-type IndexViewSpec = {
-  inputs?: Record<string, RuntimeInputSpec>;
-  read_output?: ReadOutputSpec;
 };
 
 type ArgBindingValue = string | number | boolean | null;
@@ -105,13 +99,6 @@ export type RuntimePack = {
 type OperationKind = 'view' | 'write';
 
 type RawOperationSpec = AgentViewSpec | AgentWriteSpec;
-
-export type ResolvedIndexViewContract = {
-  protocolId: string;
-  operationId: string;
-  inputs: Record<string, RuntimeInputSpec>;
-  readOutput?: ReadOutputSpec;
-};
 
 export type ResolvedRuntimeOperation = {
   pack: RuntimePack;
@@ -562,24 +549,6 @@ export function materializeRuntimeOperation(
   });
 
   return materialized;
-}
-
-export async function resolveIndexViewContract(options: {
-  protocolId: string;
-  operationId: string;
-}): Promise<ResolvedIndexViewContract> {
-  const indexing = await loadProtocolIndexingSpec(options.protocolId);
-  const operation = indexing?.operations?.[options.operationId] as { index_view?: IndexViewSpec } | undefined;
-  const indexView = operation?.index_view;
-  if (!indexView) {
-    throw new Error(`Index view ${options.protocolId}/${options.operationId} not found in indexing spec.`);
-  }
-  return {
-    protocolId: options.protocolId,
-    operationId: options.operationId,
-    inputs: cloneJsonLike(indexView.inputs ?? {}),
-    ...(indexView.read_output ? { readOutput: cloneJsonLike(indexView.read_output) } : {}),
-  };
 }
 
 function normalizeOutputSpec(
