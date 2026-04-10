@@ -48,3 +48,34 @@ jobs:
 
       - name: Test
         run: npm test
+
+  integration-registry:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout runtime
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout protocol registry
+        uses: actions/checkout@v4
+        with:
+          repository: brij-digital/protocol-registry
+          path: protocol-registry
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test against canonical registry
+        env:
+          APPPACK_RUNTIME_INTEGRATION_REGISTRY_PATH: ${{ github.workspace }}/protocol-registry/registry.json
+        run: npm run test:integration:registry

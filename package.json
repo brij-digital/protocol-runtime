@@ -1,6 +1,6 @@
 {
   "name": "@brij-digital/apppack-runtime",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "type": "module",
   "repository": {
     "type": "git",
@@ -52,6 +52,7 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "schemas:check": "node scripts/check-shared-schemas.mjs",
     "test": "npm run npmrc:check && npm run build && node --test test/**/*.test.mjs",
+    "test:integration:registry": "npm run npmrc:check && npm run build && node --test test/defined-enum-args.integration.test.mjs",
     "prepare": "npm run build",
     "prepublishOnly": "npm run npmrc:check"
   },
