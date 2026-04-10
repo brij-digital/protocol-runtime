@@ -1,6 +1,6 @@
 {
   "name": "@brij-digital/apppack-runtime",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "type": "module",
   "repository": {
     "type": "git",

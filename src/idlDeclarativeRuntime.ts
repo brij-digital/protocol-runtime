@@ -1,9 +1,6 @@
 import BN from 'bn.js';
 import {
   PublicKey,
-  Transaction,
-  TransactionInstruction,
-  type Connection,
   type AccountMeta,
 } from '@solana/web3.js';
 import {
@@ -69,11 +66,6 @@ type RemainingAccountMetaInput = {
   pubkey: string;
   isSigner?: boolean;
   isWritable?: boolean;
-};
-
-export type WalletLike = {
-  publicKey: PublicKey | null;
-  signTransaction?: <T extends Transaction>(transaction: T) => Promise<T>;
 };
 
 type BnLike = {
@@ -751,168 +743,6 @@ export async function getInstructionTemplate(options: {
     instruction: instruction.name,
     args: argsTemplate,
     accounts: accountsTemplate,
-  };
-}
-
-async function prepareSignedIdlTransaction(options: {
-  protocolId: string;
-  instructionName: string;
-  args: Record<string, unknown>;
-  accounts: Record<string, string>;
-  remainingAccounts?: RemainingAccountMetaInput[];
-  preInstructions?: TransactionInstruction[];
-  postInstructions?: TransactionInstruction[];
-  connection: Connection;
-  wallet: WalletLike;
-}): Promise<{
-  tx: Transaction;
-  latestBlockhash: { blockhash: string; lastValidBlockHeight: number };
-}> {
-  if (!options.wallet.publicKey) {
-    throw new Error('Connect a wallet first.');
-  }
-
-  const { protocol, idl } = await loadProtocolAndIdl(options.protocolId);
-  const instruction = findInstructionByName(idl, options.instructionName);
-
-  const args = buildInstructionArgs(idl, instruction, options.args);
-  const instructionCoder = new DirectInstructionCoder(idl);
-  const encodedData = instructionCoder.encode(instruction.name, args);
-  if (!encodedData) {
-    throw new Error('Failed to encode instruction from IDL.');
-  }
-
-  const accountMetas = buildAccountMetas({
-    idlInstruction: instruction,
-    accountsInput: options.accounts,
-    walletPublicKey: options.wallet.publicKey,
-    programId: protocol.programId,
-  });
-  const remainingMetas = buildRemainingAccountMetas(options.remainingAccounts);
-
-  const txInstruction = new TransactionInstruction({
-    programId: new PublicKey(protocol.programId),
-    keys: [...accountMetas, ...remainingMetas],
-    data: encodedData,
-  });
-
-  const tx = new Transaction();
-  for (const preIx of options.preInstructions ?? []) {
-    tx.add(preIx);
-  }
-  tx.add(txInstruction);
-  for (const postIx of options.postInstructions ?? []) {
-    tx.add(postIx);
-  }
-  tx.feePayer = options.wallet.publicKey;
-
-  const latestBlockhash = await options.connection.getLatestBlockhash('confirmed');
-  tx.recentBlockhash = latestBlockhash.blockhash;
-
-  return { tx, latestBlockhash };
-}
-
-function formatSimulationError(simulation: Awaited<ReturnType<Connection['simulateTransaction']>>): string {
-  const logs = simulation.value.logs?.join('\n') ?? 'No simulation logs available.';
-  return `Simulation failed: ${JSON.stringify(simulation.value.err)}\n${logs}`;
-}
-
-export async function sendIdlInstruction(options: {
-  protocolId: string;
-  instructionName: string;
-  args: Record<string, unknown>;
-  accounts: Record<string, string>;
-  remainingAccounts?: RemainingAccountMetaInput[];
-  preInstructions?: TransactionInstruction[];
-  postInstructions?: TransactionInstruction[];
-  connection: Connection;
-  wallet: WalletLike;
-  onStatus?: (status: 'preparing' | 'simulating' | 'awaiting_wallet_approval' | 'submitting' | 'submitted' | 'confirming' | 'confirmed') => void;
-  onSubmitted?: (payload: { signature: string; explorerUrl: string }) => void;
-}): Promise<{ signature: string; explorerUrl: string }> {
-  if (!options.wallet.signTransaction) {
-    throw new Error('Connected wallet does not support transaction signing.');
-  }
-
-  options.onStatus?.('preparing');
-  const { tx, latestBlockhash } = await prepareSignedIdlTransaction(options);
-
-  options.onStatus?.('simulating');
-  const simulation = await options.connection.simulateTransaction(tx);
-
-  if (simulation.value.err) {
-    throw new Error(formatSimulationError(simulation));
-  }
-
-  options.onStatus?.('awaiting_wallet_approval');
-  const signedTx = await options.wallet.signTransaction(tx);
-  options.onStatus?.('submitting');
-  const signature = await options.connection.sendRawTransaction(signedTx.serialize(), {
-    skipPreflight: false,
-    maxRetries: 3,
-  });
-  const explorerUrl = `https://solscan.io/tx/${signature}`;
-  options.onSubmitted?.({ signature, explorerUrl });
-  options.onStatus?.('submitted');
-
-  options.onStatus?.('confirming');
-  await options.connection.confirmTransaction(
-    {
-      signature,
-      blockhash: latestBlockhash.blockhash,
-      lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-    },
-    'confirmed',
-  );
-
-  options.onStatus?.('confirmed');
-
-  return {
-    signature,
-    explorerUrl,
-  };
-}
-
-export async function simulateIdlInstruction(options: {
-  protocolId: string;
-  instructionName: string;
-  args: Record<string, unknown>;
-  accounts: Record<string, string>;
-  remainingAccounts?: RemainingAccountMetaInput[];
-  preInstructions?: TransactionInstruction[];
-  postInstructions?: TransactionInstruction[];
-  includeAccounts?: string[];
-  connection: Connection;
-  wallet: WalletLike;
-}): Promise<{
-  ok: boolean;
-  logs: string[];
-  unitsConsumed: number | null;
-  error: string | null;
-  accounts: Array<{ address: string; dataBase64: string | null }>;
-}> {
-  const { tx } = await prepareSignedIdlTransaction(options);
-  const includeAccounts = options.includeAccounts?.map((address) => new PublicKey(address));
-  const simulation = await options.connection.simulateTransaction(tx, undefined, includeAccounts);
-
-  return {
-    ok: simulation.value.err === null,
-    logs: simulation.value.logs ?? [],
-    unitsConsumed: simulation.value.unitsConsumed ?? null,
-    error: simulation.value.err ? JSON.stringify(simulation.value.err) : null,
-    accounts:
-      includeAccounts?.map((pubkey, index) => {
-        const account = simulation.value.accounts?.[index];
-        let dataBase64: string | null = null;
-        if (account?.data && Array.isArray(account.data) && typeof account.data[0] === 'string') {
-          dataBase64 = account.data[0];
-        }
-
-        return {
-          address: pubkey.toBase58(),
-          dataBase64,
-        };
-      }) ?? [],
   };
 }
 
