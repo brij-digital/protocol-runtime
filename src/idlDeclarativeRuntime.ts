@@ -1,5 +1,4 @@
 import BN from 'bn.js';
-import type { WalletContextState } from '@solana/wallet-adapter-react';
 import {
   PublicKey,
   Transaction,
@@ -77,6 +76,11 @@ type RemainingAccountMetaInput = {
   pubkey: string;
   isSigner?: boolean;
   isWritable?: boolean;
+};
+
+export type WalletLike = {
+  publicKey: PublicKey | null;
+  signTransaction?: <T extends Transaction>(transaction: T) => Promise<T>;
 };
 
 const idlCache = new Map<string, Idl>();
@@ -773,7 +777,7 @@ async function prepareSignedIdlTransaction(options: {
   preInstructions?: TransactionInstruction[];
   postInstructions?: TransactionInstruction[];
   connection: Connection;
-  wallet: WalletContextState;
+  wallet: WalletLike;
 }): Promise<{
   tx: Transaction;
   latestBlockhash: { blockhash: string; lastValidBlockHeight: number };
@@ -836,7 +840,7 @@ export async function sendIdlInstruction(options: {
   preInstructions?: TransactionInstruction[];
   postInstructions?: TransactionInstruction[];
   connection: Connection;
-  wallet: WalletContextState;
+  wallet: WalletLike;
   onStatus?: (status: 'preparing' | 'simulating' | 'awaiting_wallet_approval' | 'submitting' | 'submitted' | 'confirming' | 'confirmed') => void;
   onSubmitted?: (payload: { signature: string; explorerUrl: string }) => void;
 }): Promise<{ signature: string; explorerUrl: string }> {
@@ -893,7 +897,7 @@ export async function simulateIdlInstruction(options: {
   postInstructions?: TransactionInstruction[];
   includeAccounts?: string[];
   connection: Connection;
-  wallet: WalletContextState;
+  wallet: WalletLike;
 }): Promise<{
   ok: boolean;
   logs: string[];
