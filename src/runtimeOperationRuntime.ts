@@ -362,6 +362,18 @@ type ResolverContext = {
   scope: Record<string, unknown>;
 };
 
+type ParsedTokenAccountRow = {
+  pubkey: string;
+  tokenProgram: string;
+  mint: string;
+  owner: string;
+  amount: string;
+  decimals: number | null;
+  uiAmountString: string | null;
+  state: string | null;
+  isNative: boolean | null;
+};
+
 const runtimePackCache = new Map<string, RuntimePack>();
 const idlCache = new Map<string, Idl>();
 
@@ -775,6 +787,103 @@ async function runResolver(step: LoadStep, ctx: ResolverContext): Promise<unknow
       throw new Error(`Account not found for account_owner ${step.name}: ${address.toBase58()}`);
     }
     return info.owner.toBase58();
+  }
+  if (step.kind === 'token_accounts_by_owner') {
+    const owner = asPubkey(
+      resolveTemplateValue(step.owner, ctx.scope),
+      `token_accounts_by_owner:${step.name}:owner`,
+    );
+    const mint =
+      step.mint === undefined
+        ? undefined
+        : asPubkey(
+            resolveTemplateValue(step.mint, ctx.scope),
+            `token_accounts_by_owner:${step.name}:mint`,
+          );
+    const tokenProgram =
+      step.token_program === undefined
+        ? undefined
+        : asPubkey(
+            resolveTemplateValue(step.token_program, ctx.scope),
+            `token_accounts_by_owner:${step.name}:token_program`,
+          );
+
+    const filters =
+      mint !== undefined
+        ? [{ mint }]
+        : tokenProgram !== undefined
+          ? [{ programId: tokenProgram }]
+          : [{ programId: TOKEN_PROGRAM_ID }, { programId: TOKEN_2022_PROGRAM_ID }];
+
+    const accounts = new Map<string, ParsedTokenAccountRow>();
+    for (const filter of filters) {
+      const response = await ctx.connection.getParsedTokenAccountsByOwner(owner, filter, 'confirmed');
+      for (const entry of response.value) {
+        const account = asRecord(
+          entry.account as unknown as JsonRecord,
+          `token_accounts_by_owner:${step.name}:account`,
+        );
+        const ownerProgram = asString(
+          account.owner,
+          `token_accounts_by_owner:${step.name}:account.owner`,
+        );
+        if (tokenProgram && ownerProgram !== tokenProgram.toBase58()) {
+          continue;
+        }
+        const data = asRecord(
+          account.data,
+          `token_accounts_by_owner:${step.name}:account.data`,
+        );
+        const parsed = asRecord(
+          data.parsed,
+          `token_accounts_by_owner:${step.name}:account.data.parsed`,
+        );
+        const info = asRecord(
+          parsed.info,
+          `token_accounts_by_owner:${step.name}:account.data.parsed.info`,
+        );
+        const tokenAmount = asRecord(
+          info.tokenAmount,
+          `token_accounts_by_owner:${step.name}:account.data.parsed.info.tokenAmount`,
+        );
+        const mintAddress = asString(
+          info.mint,
+          `token_accounts_by_owner:${step.name}:account.data.parsed.info.mint`,
+        );
+        if (mint && mintAddress !== mint.toBase58()) {
+          continue;
+        }
+        accounts.set(entry.pubkey.toBase58(), {
+          pubkey: entry.pubkey.toBase58(),
+          tokenProgram: ownerProgram,
+          mint: mintAddress,
+          owner: asString(
+            info.owner,
+            `token_accounts_by_owner:${step.name}:account.data.parsed.info.owner`,
+          ),
+          amount: asString(
+            tokenAmount.amount,
+            `token_accounts_by_owner:${step.name}:account.data.parsed.info.tokenAmount.amount`,
+          ),
+          decimals:
+            tokenAmount.decimals === undefined || tokenAmount.decimals === null
+              ? null
+              : Number(tokenAmount.decimals),
+          uiAmountString:
+            tokenAmount.uiAmountString === undefined || tokenAmount.uiAmountString === null
+              ? null
+              : String(tokenAmount.uiAmountString),
+          state:
+            info.state === undefined || info.state === null ? null : String(info.state),
+          isNative:
+            info.isNative === undefined || info.isNative === null ? null : Boolean(info.isNative),
+        });
+      }
+    }
+
+    return normalizeRuntimeValue(
+      [...accounts.values()].sort((left, right) => left.pubkey.localeCompare(right.pubkey)),
+    );
   }
   if (step.kind === 'ata') {
     const owner = asPubkey(resolveTemplateValue(step.owner, ctx.scope), `ata:${step.name}:owner`);

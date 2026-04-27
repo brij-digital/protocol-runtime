@@ -423,6 +423,32 @@
           "required": [
             "name",
             "kind",
+            "owner"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "token_accounts_by_owner"
+            },
+            "owner": {
+              "$ref": "#/$defs/jsonValue"
+            },
+            "mint": {
+              "$ref": "#/$defs/jsonValue"
+            },
+            "token_program": {
+              "$ref": "#/$defs/jsonValue"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "name",
+            "kind",
             "dividend",
             "divisor"
           ],

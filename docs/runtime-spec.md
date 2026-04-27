@@ -263,6 +263,7 @@ The current runtime supports these important step families:
   - `decode_account`
   - `decode_accounts`
   - `account_owner`
+  - `token_accounts_by_owner`
   - `ata`
   - `pda`
 - arithmetic:
@@ -307,6 +308,35 @@ The current runtime supports these important step families:
   - `transform`
 
 The JSON schema is the source of truth for the full step catalog and exact attributes for each kind.
+
+### `token_accounts_by_owner`
+
+Reads parsed SPL token accounts for a wallet owner from the RPC node.
+
+Required attributes:
+- `name`
+- `kind = "token_accounts_by_owner"`
+- `owner`
+
+Optional attributes:
+- `mint`
+- `token_program`
+
+Behavior:
+- if `token_program` is provided, it queries only that token program
+- if `mint` is provided, it uses the owner+mint lookup and filters the returned rows
+- if neither is provided, it queries both `Tokenkeg...` and `Token-2022`
+
+Returned rows are normalized objects with:
+- `pubkey`
+- `tokenProgram`
+- `mint`
+- `owner`
+- `amount`
+- `decimals`
+- `uiAmountString`
+- `state`
+- `isNative`
 
 ## Scoped collection transforms
 
