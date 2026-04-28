@@ -15,7 +15,6 @@ export type ActionRunnerStepSpec = {
   operationId: string;
   input?: Record<string, unknown>;
   limit?: number;
-  when?: unknown;
 };
 
 export type ActionRunnerSpec = {
@@ -130,12 +129,6 @@ export async function runActionRunner(options: {
   const steps: ActionRunnerStepResult[] = [];
 
   for (const step of options.spec.steps) {
-    if (step.when !== undefined) {
-      const shouldRun = Boolean(resolveValue(step.when, scope));
-      if (!shouldRun) {
-        continue;
-      }
-    }
     const resolvedInput = step.input
       ? asRecord(resolveValue(step.input, scope), `${options.spec.actionId}.${step.id}.input`)
       : {};
